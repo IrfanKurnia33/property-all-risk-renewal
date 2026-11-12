@@ -79,14 +79,14 @@ svg { flex-shrink: 0; }
 .sidebar-bottom .text-button { padding: 10px 12px; width: 100%; justify-content: flex-start; }
 .sidebar-footer { font-size: 11px; color: #59677b; padding: 12px 12px 0; line-height: 1.6; }
 .app-body { min-width: 0; }
-.topbar { height: 76px; background: #fff; border-bottom: 1px solid var(--line); padding: 0 36px; display: flex; align-items: center; gap: 16px; justify-content: space-between; }
+.topbar { min-height: 76px; background: #fff; border-bottom: 1px solid var(--line); padding: 0 36px; display: flex; align-items: center; gap: 16px; justify-content: space-between; }
 .breadcrumb { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 13px; }
 .breadcrumb .icon { width: 14px; height: 14px; color: #8e9aab; }
 .breadcrumb strong { color: var(--ink); }
-.role-control { display: flex; align-items: center; gap: 12px; }
+.role-control { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; max-width: 100%; }
 .simulation-label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .simulation-label .icon { width: 14px; height: 14px; }
-.role-select { min-height: 44px; max-width: 180px; background: #fff; border: 1px solid #d7dfe9; padding: 7px 32px 7px 12px; border-radius: 6px; font-size: 13px; color: var(--ink); }
+.role-select { min-height: 44px; width: 250px; max-width: 100%; background: #fff; border: 1px solid #d7dfe9; padding: 7px 32px 7px 12px; border-radius: 6px; font-size: 13px; color: var(--ink); }
 .mobile-stage-nav { display: none; }
 .workspace { max-width: 1540px; margin: 0 auto; padding: 32px 36px 40px; }
 .case-heading { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 28px; }
@@ -364,7 +364,7 @@ dialog::backdrop { background: #17283d70; }
   .topbar { padding: 12px 16px; gap: 8px; flex-wrap: wrap; }
   .breadcrumb { font-size: 12px; }
   .breadcrumb > .icon { width: 15px; }
-  .role-select { font-size: 13px; min-height: 44px; max-width: 142px; padding-left: 10px; padding-right: 20px; }
+  .role-select { font-size: 13px; min-height: 44px; max-width: 100%; padding-left: 10px; padding-right: 20px; }
   .simulation-label span { display: inline; }
   .simulation-label .icon { width: 14px; height: 14px; }
   .mobile-stage-nav summary { padding: 14px 16px; min-height: 44px; }

@@ -1,15 +1,17 @@
 # Alur draft quotation renewal Property All Risks (v2)
 
-Berdasarkan diskusi dengan Falih yang membahas renewal flow versi pertama (`docs\renewal-flow-v1`), berikut alur draft versi kedua yang telah disesuaikan dengan alur kerja di MIR Group.
+Berdasarkan diskusi dengan Falih yang membahas renewal flow versi pertama (`docs\renewal-flow-v1`), berikut alur draft versi kedua yang telah disesuaikan dengan alur kerja di Nusa Risk Partners.
 
-## BAGIAN 1: Koordinasi Broker (MIR) dengan Asuransi (*Insurer*)
+Nama broker **Nusa Risk Partners** adalah nama fiktif yang digunakan untuk anonimisasi dalam dokumentasi dan prototype.
+
+## BAGIAN 1: Koordinasi Broker (Nusa Risk Partners) dengan Asuransi (*Insurer*)
 
 ### Step 1: Start dari Bahan Renewal
 
 - Broker punya file (.docx) quotation tahun lalu.
 - **PENTING:** Di sini, klien belum memiliki peran, karena broker masih hanya berkoordinasi dengan asuransi.
 
-Biasanya, sumber yang digunakan Falih (MIR) untuk membuat *renewal quotation slip* adalah:
+Biasanya, sumber yang digunakan Falih (Nusa Risk Partners) untuk membuat *renewal quotation slip* adalah:
 
 1. ***Final Slip* dari periode sebelumnya:** Karena *final slip* adalah T&C yang sudah disepakati oleh broker, klien, dan asuransi pada periode lalu, yang dimana apabila klien tidak mengajukan klaim, maka asuransi cenderung akan menerima T&C yang sama dengan periode sebelumnya.
 2. ***Standard T&C:*** Mengapa masih dibandingkan dengan *Standard T&C*? Karena bisa saja terdapat perubahan yang terjadi, yang mana lebih menguntungkan klien.
@@ -30,7 +32,7 @@ Pihak broker harus memerika nama, alamat, dan atribut data lain untuk *matching*
 
 Di step ini, Falih dari pihak broker harus bisa tahu mana saja data atau detail yang belum cocok untuk dilakukan *follow-up*.
 
-## BAGIAN 2: Koordinasi Broker (MIR) dengan Klien
+## BAGIAN 2: Koordinasi Broker (Nusa Risk Partners) dengan Klien
 
 ### Step 5: Review oleh Klien
 
