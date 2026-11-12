@@ -1,0 +1,61 @@
+{
+  "installed_on": "2026-11-11",
+  "scope": "repository",
+  "directory": ".agents/skills",
+  "sources": [
+    {
+      "repository": "https://github.com/Leonxlnx/taste-skill",
+      "branch": "main",
+      "commit": "f6b76575f949707b4e3c37cd86cb44b0b98643e8",
+      "version": "2.5.1",
+      "skills": {
+        "design-taste-frontend": "skills/taste-skill"
+      },
+      "local_changes": [
+        "Removed Claude-only Stop-hook frontmatter; kept scripts and other resources."
+      ]
+    },
+    {
+      "repository": "https://github.com/DietrichGebert/ponytail",
+      "branch": "main",
+      "commit": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+      "version": "5.3.3",
+      "skills": {
+        "ponytail": "skills/ponytail",
+        "ponytail-review": "skills/ponytail-review",
+        "ponytail-audit": "skills/ponytail-audit",
+        "ponytail-debt": "skills/ponytail-debt",
+        "ponytail-gain": "skills/ponytail-gain",
+        "ponytail-help": "skills/ponytail-help"
+      },
+      "local_changes": [
+        "Added upstream license to each skill; bundled README and benchmark source referenced by ponytail-gain.",
+        "Moved Claude argument-hint into optional metadata for Codex frontmatter compatibility; kept skill body unchanged."
+      ]
+    },
+    {
+      "repository": "https://github.com/Graphify-Labs/graphify",
+      "branch": "v8",
+      "commit": "35d1d2038b9e9d470f117bf8f2473d415b5f5358",
+      "version": "0.9.106",
+      "skills": {
+        "graphify": "graphify/skill-codex.md"
+      },
+      "references": "graphify/skills/codex/references",
+      "local_changes": [
+        "Renamed the Codex skill entrypoint to SKILL.md.",
+        "Replaced global runtime installation and interpreter fallback with repository-local venv guidance.",
+        "Disabled automatic user-scope skill refresh through process-scoped GRAPHIFY_NO_AUTO_REFRESH.",
+        "Directed cloned repositories and additional caches into this repository.",
+        "Adapted semantic delegation to available collaboration tools with inline fallback; removed global feature configuration advice, preserved complete-chunk validation, and marked unavailable token usage honestly."
+      ],
+      "runtime": {
+        "status": "not-installed",
+        "package": "graphifyy==0.9.106",
+        "python": ">=3.10,<3.15",
+        "destination": ".tools/graphify/.venv",
+        "reason": "Skill installation only; available Python 3.15 is outside the supported range."
+      }
+    }
+  ]
+}

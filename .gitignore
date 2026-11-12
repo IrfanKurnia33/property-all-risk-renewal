@@ -1,0 +1,33 @@
+node_modules/
+dist/
+.cache/
+.tools/
+.taste-skill/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.vercel/
+
+# Historical flow; v2 is the current reference.
+docs/renewal-flow-v1/
+
+# Installed agent packages stay local; keep their source records.
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/README.md
+!.agents/skills/sources.lock.json
+.codex/
+.aws/
+
+# Local editor settings and generated files.
+.vscode/
+.idea/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+Desktop.ini

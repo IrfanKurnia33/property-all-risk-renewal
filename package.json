@@ -1,0 +1,32 @@
+{
+  "name": "par-renewal-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/*.test.ts",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "docx": "9.15.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "fflate": "0.8.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  }
+}
