@@ -6,13 +6,21 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+__pycache__/
 .env
 .env.*
 !.env.example
 .vercel/
 
-# Historical flow; v2 is the current reference.
+# Research documents.
 docs/renewal-flow-v1/
+docs/renewal-flow-v2/
+docs/usability-testing/
+docs/interviews/
+docs/post-prototype-research-plan/
+docs/prototype-design.md
+docs/prototype-validation.md
+docs/walkthrough-video.md
 
 # Installed agent packages stay local; keep their source records.
 .agents/*
@@ -31,3 +39,8 @@ coverage/
 .DS_Store
 Thumbs.db
 Desktop.ini
+scripts/walkthrough/produce.py
+scripts/walkthrough/record.mjs
+scripts/walkthrough/requirements.txt
+scripts/walkthrough/scenes.json
+scripts/walkthrough/test_produce.py
