@@ -30,6 +30,16 @@ Graphify task, use a compatible Python interpreter and a venv at
 Do not use a global installer. Set `GRAPHIFY_NO_AUTO_REFRESH=1` in the process
 running Graphify to prevent it from updating skills in user directories.
 
-The product reference remains `docs/renewal-flow-v2/renewal-flow-v2.md`; the
-first version is historical. Installing these skills does not start prototype
-implementation.
+The Rekonvia product reference is `docs/research/renewal-flow-v2/renewal-flow-v2.md`;
+the first version is historical. Research navigation starts at
+`docs/research/README.md`. The research and v1 implementation plans are private,
+Git-ignored local material and may be absent in a fresh checkout. Installing
+these skills does not start prototype implementation.
+
+For Rekonvia's operational workspace, apply Taste's consistency, contrast,
+focus, reduced-motion and responsive browser checks. Preserve the owner's
+palette, typography and original SVG assets. Marketing-specific heroes,
+dealt palettes, screen-height sections, photographs and decorative motion do
+not belong in the renewal workflow. Record actual checker results and any
+unverified scope in the private implementation plan; do not describe a timed-out
+gate as a pass. No upstream skill files were changed for these adaptations.

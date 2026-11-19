@@ -1,0 +1,288 @@
+/* Rekonvia Brand Palette v1.0 — Tailwind CSS v4, CSS-first.
+   All 66 primitive shades copied unchanged from approved owner values.
+   Primary logo SVGs are separate unchanged assets.
+   This should be the ONE global stylesheet entrypoint for Tailwind.
+   Do not add v3 @tailwind directives or recreate a tailwind.config.js. */
+@import "tailwindcss";
+@import "./styles.css" layer(components);
+
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/assets/fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/assets/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: swap;
+  src: url('/assets/fonts/plus-jakarta-sans-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: swap;
+  src: url('/assets/fonts/plus-jakarta-sans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Primitive families: exact owner-supplied values. */
+@theme static {
+  /* midnight-navy */
+  --color-midnight-navy-50: #f1f7fd;
+  --color-midnight-navy-100: #deedfb;
+  --color-midnight-navy-200: #c5e0f8;
+  --color-midnight-navy-300: #9dcef3;
+  --color-midnight-navy-400: #6fb2eb;
+  --color-midnight-navy-500: #4d94e4;
+  --color-midnight-navy-600: #3879d8;
+  --color-midnight-navy-700: #2f65c6;
+  --color-midnight-navy-800: #2c52a1;
+  --color-midnight-navy-900: #284780;
+  --color-midnight-navy-950: #121c31;
+
+  /* electric-indigo */
+  --color-electric-indigo-50: #eef2ff;
+  --color-electric-indigo-100: #e0e8ff;
+  --color-electric-indigo-200: #c6d2ff;
+  --color-electric-indigo-300: #a4b5fd;
+  --color-electric-indigo-400: #7f8dfa;
+  --color-electric-indigo-500: #6167f3;
+  --color-electric-indigo-600: #514be8;
+  --color-electric-indigo-700: #3f36cc;
+  --color-electric-indigo-800: #332ea5;
+  --color-electric-indigo-900: #2f2d82;
+  --color-electric-indigo-950: #1c1a4c;
+
+  /* signal-mint */
+  --color-signal-mint-50: #f1fcfa;
+  --color-signal-mint-100: #cef9f2;
+  --color-signal-mint-200: #9df2e5;
+  --color-signal-mint-300: #65e3d4;
+  --color-signal-mint-400: #33cbbe;
+  --color-signal-mint-500: #1cb0a6;
+  --color-signal-mint-600: #138e88;
+  --color-signal-mint-700: #14716e;
+  --color-signal-mint-800: #155a58;
+  --color-signal-mint-900: #164b4a;
+  --color-signal-mint-950: #062c2d;
+
+  /* cloud-white */
+  --color-cloud-white-50: #f6f8fc;
+  --color-cloud-white-100: #e4eaf5;
+  --color-cloud-white-200: #cfdaee;
+  --color-cloud-white-300: #adc1e3;
+  --color-cloud-white-400: #86a1d4;
+  --color-cloud-white-500: #6a84c7;
+  --color-cloud-white-600: #566bba;
+  --color-cloud-white-700: #4c5ba9;
+  --color-cloud-white-800: #424c8b;
+  --color-cloud-white-900: #39416f;
+  --color-cloud-white-950: #262a45;
+
+  /* slate */
+  --color-slate-50: #f6f7f9;
+  --color-slate-100: #eceef2;
+  --color-slate-200: #d6dae1;
+  --color-slate-300: #b2bbc7;
+  --color-slate-400: #8796a9;
+  --color-slate-500: #69798e;
+  --color-slate-600: #566479;
+  --color-slate-700: #444f60;
+  --color-slate-800: #3b4451;
+  --color-slate-900: #353b45;
+  --color-slate-950: #23272e;
+
+  /* mist */
+  --color-mist-50: #f4f6fa;
+  --color-mist-100: #e0e6ef;
+  --color-mist-200: #d4dde9;
+  --color-mist-300: #b6c6da;
+  --color-mist-400: #93a9c7;
+  --color-mist-500: #798fb8;
+  --color-mist-600: #677aa9;
+  --color-mist-700: #5b6a9a;
+  --color-mist-800: #4e587f;
+  --color-mist-900: #424a66;
+  --color-mist-950: #2b2f40;
+
+  --font-heading: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+  --font-body: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Semantic roles: these variables can be scoped for branded dark sections.
+   Keep the app LIGHT by default until a complete dark UI has been designed. */
+:root {
+  --rk-brand-navy: var(--color-midnight-navy-950);
+  --rk-brand-indigo: var(--color-electric-indigo-600);
+  --rk-brand-mint: var(--color-signal-mint-400);
+  --rk-neutral-cloud: var(--color-cloud-white-50);
+  --rk-neutral-slate: var(--color-slate-600);
+  --rk-neutral-mist: var(--color-mist-100);
+  --rk-color-canvas: var(--color-cloud-white-50);
+  --rk-color-surface: #ffffff;
+  --rk-color-surface-subtle: var(--color-slate-50);
+  --rk-color-surface-selected: var(--color-electric-indigo-50);
+  --rk-color-text-primary: var(--color-midnight-navy-950);
+  --rk-color-text-secondary: var(--color-slate-600);
+  --rk-color-text-muted: var(--color-slate-600);
+  --rk-color-text-inverse: #ffffff;
+  --rk-color-border-subtle: var(--color-mist-100); /* decorative only */
+  --rk-color-border-control: var(--color-slate-500); /* essential boundary */
+  --rk-color-action-primary: var(--color-electric-indigo-600);
+  --rk-color-action-primary-hover: var(--color-electric-indigo-700);
+  --rk-color-action-primary-active: var(--color-electric-indigo-800);
+  --rk-color-action-primary-text: #ffffff;
+  --rk-color-action-secondary-bg: var(--color-electric-indigo-50);
+  --rk-color-action-secondary-text: var(--color-electric-indigo-800);
+  --rk-color-link: var(--color-electric-indigo-700);
+  --rk-color-focus-ring: var(--color-electric-indigo-700);
+  --rk-color-on-mint: var(--color-midnight-navy-950);
+  /* The original logo SVG has a different native gradient direction: do not override it. */
+  --rk-gradient-brand: linear-gradient(135deg, var(--color-electric-indigo-600) 0%, var(--color-electric-indigo-700) 100%);
+  /* Workflow statuses: intentionally independent of brand accent hues. */
+  --rk-status-confirmed-fg: #167b64;
+  --rk-status-confirmed-bg: #e6f6ef;
+  --rk-status-pending-fg: #996019;
+  --rk-status-pending-bg: #fff4e2;
+  --rk-status-blocked-fg: #b93b48;
+  --rk-status-blocked-bg: #fdedee;
+  --rk-status-review-fg: #315fa3;
+  --rk-status-review-bg: #ebf2ff;
+  /* Provisional chart colors, never replacements for textual labels. */
+  --rk-chart-series-1: var(--color-electric-indigo-700);
+  --rk-chart-series-2: var(--color-signal-mint-700);
+  --rk-chart-series-3: var(--color-slate-700);
+  --rk-chart-sequential-1: var(--color-electric-indigo-100);
+  --rk-chart-sequential-2: var(--color-electric-indigo-300);
+  --rk-chart-sequential-3: var(--color-electric-indigo-500);
+  --rk-chart-sequential-4: var(--color-electric-indigo-700);
+  --rk-chart-sequential-5: var(--color-electric-indigo-900);
+  --rk-chart-track: var(--color-mist-100);
+  --rk-chart-primary: var(--color-electric-indigo-600);
+
+  /* Compatibility aliases for stage views migrating in later phases. */
+  --ink: var(--rk-color-text-primary);
+  --muted: var(--rk-color-text-secondary);
+  --faint: var(--rk-color-surface-subtle);
+  --line: var(--rk-color-border-subtle);
+  --surface: var(--rk-color-surface);
+  --blue: var(--rk-color-action-primary);
+  --blue-dark: var(--rk-color-action-primary-hover);
+  --blue-light: var(--rk-color-surface-selected);
+  --green: var(--rk-status-confirmed-fg);
+  --green-light: var(--rk-status-confirmed-bg);
+  --amber: var(--rk-status-pending-fg);
+  --amber-light: var(--rk-status-pending-bg);
+  --red: var(--rk-status-blocked-fg);
+  --radius: 8px;
+}
+
+/* Expose semantic aliases to Tailwind; @theme inline preserves scoped variable resolution. */
+@theme inline {
+  --color-canvas: var(--rk-color-canvas);
+  --color-surface: var(--rk-color-surface);
+  --color-surface-subtle: var(--rk-color-surface-subtle);
+  --color-surface-selected: var(--rk-color-surface-selected);
+  --color-text-primary: var(--rk-color-text-primary);
+  --color-text-secondary: var(--rk-color-text-secondary);
+  --color-text-muted: var(--rk-color-text-muted);
+  --color-text-inverse: var(--rk-color-text-inverse);
+  --color-border-subtle: var(--rk-color-border-subtle);
+  --color-border-control: var(--rk-color-border-control);
+  --color-action-primary: var(--rk-color-action-primary);
+  --color-action-primary-hover: var(--rk-color-action-primary-hover);
+  --color-action-primary-active: var(--rk-color-action-primary-active);
+  --color-action-primary-text: var(--rk-color-action-primary-text);
+  --color-action-secondary-bg: var(--rk-color-action-secondary-bg);
+  --color-action-secondary-text: var(--rk-color-action-secondary-text);
+  --color-link: var(--rk-color-link);
+  --color-focus-ring: var(--rk-color-focus-ring);
+  --color-on-mint: var(--rk-color-on-mint);
+  --color-status-confirmed-fg: var(--rk-status-confirmed-fg);
+  --color-status-confirmed-bg: var(--rk-status-confirmed-bg);
+  --color-status-pending-fg: var(--rk-status-pending-fg);
+  --color-status-pending-bg: var(--rk-status-pending-bg);
+  --color-status-blocked-fg: var(--rk-status-blocked-fg);
+  --color-status-blocked-bg: var(--rk-status-blocked-bg);
+  --color-status-review-fg: var(--rk-status-review-fg);
+  --color-status-review-bg: var(--rk-status-review-bg);
+  --color-chart-series-1: var(--rk-chart-series-1);
+  --color-chart-series-2: var(--rk-chart-series-2);
+  --color-chart-series-3: var(--rk-chart-series-3);
+  --color-chart-sequential-1: var(--rk-chart-sequential-1);
+  --color-chart-sequential-2: var(--rk-chart-sequential-2);
+  --color-chart-sequential-3: var(--rk-chart-sequential-3);
+  --color-chart-sequential-4: var(--rk-chart-sequential-4);
+  --color-chart-sequential-5: var(--rk-chart-sequential-5);
+  --color-chart-track: var(--rk-chart-track);
+  --color-chart-primary: var(--rk-chart-primary);
+}
+
+/* Branded dark sections are NOT a full dark app theme. */
+.rk-brand-dark {
+  --rk-color-canvas: var(--color-midnight-navy-950);
+  --rk-color-text-primary: var(--color-mist-100);
+  --rk-color-text-secondary: var(--color-mist-300);
+  --rk-color-text-muted: var(--color-mist-300);
+  --rk-color-border-subtle: var(--color-slate-700);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    font-family: var(--font-body);
+    color: var(--rk-color-text-primary);
+    background-color: var(--rk-color-canvas);
+  }
+  h1, h2, h3 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--rk-color-text-secondary);
+    opacity: 1;
+  }
+  /* Prefer semantic focus utilities on components; fallback for native interactive controls. */
+  :where(button, a, input, select, textarea, summary):focus-visible {
+    outline: 3px solid var(--rk-color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .rk-brand-gradient { background-image: var(--rk-gradient-brand); }
+}
+
+/* Feedback stays still when the user requests reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  button:active {
+    transform: none !important;
+  }
+}

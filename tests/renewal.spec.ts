@@ -1,9 +1,9 @@
-import { test, expect } from '@playwright/test';
+﻿import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { CASE_STORAGE_KEY } from '../src/persistence.ts';
+import { CASE_STORAGE_KEY, LEGACY_CASE_STORAGE_KEY } from '../src/persistence.ts';
 import type { RenewalCase, Role } from '../src/domain.ts';
-import { exportReadyCase, partialResponseCase } from './fixtures.ts';
+import { exportReadyCase, partialResponseCase, proposalReadyCase, quoteReadyCase } from './fixtures.ts';
 
 async function seed(page: Page, state?: RenewalCase) {
   await page.addInitScript(({ key, data }) => {
@@ -21,13 +21,46 @@ async function stage(page: Page, label: string) {
 const role = (page: Page, value: Role) => page.getByLabel('Peran simulasi').selectOption(value);
 const saved = (page: Page): Promise<RenewalCase> => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), CASE_STORAGE_KEY);
 
-test('first visit tour is dismissible, keyboard accessible, replayable, and changes no case data', async ({ page }) => {
+async function addInsurerSource(page: Page, type: 'insurer-reply' | 'binding-evidence', id: string, producer: string) {
+  await stage(page, 'Bahan renewal');
+  const summary = page.getByText('Catat versi sumber fiktif baru', { exact: true });
+  const form = page.locator('#add-document');
+  if (!await form.isVisible()) await summary.click();
+  await form.locator('#doc-id').fill(id);
+  await form.locator('#doc-identity').fill(id);
+  await form.locator('#doc-name').fill('Email fiktif ' + id);
+  await form.locator('#doc-producer').fill(producer);
+  await form.locator('#doc-type').selectOption(type);
+  await form.getByRole('button', { name: 'Simpan versi sumber', exact: true }).click();
+}
+
+async function insurerResponse(page: Page, id: string, name: string, share: string, source: string, leader = false) {
+  await stage(page, 'Review asuransi');
+  const form = page.locator('#record-response');
+  await form.locator('#insurer-id').fill(id);
+  await form.locator('#insurer-name').fill(name);
+  await form.locator('#external-respondent').fill('Underwriter fiktif ' + id);
+  await form.locator('#response-share').fill(share);
+  await form.locator('#response-source').selectOption(source);
+  await form.locator('#response-evidence').fill('Menyetujui wording dan terms QS pada share ' + share + '% (fiktif).');
+  await form.locator('input[name="response-leader"]').setChecked(leader);
+  await page.getByTestId('record-response').click();
+}
+
+async function reviewWording(page: Page) {
+  for (let i = 1; i <= 4; i++) {
+    const form = page.locator('#review-clause-' + i);
+    await form.getByLabel('Catatan review wording').fill('Baseline dan QS sama, sumber fiktif diperiksa.');
+    await form.getByRole('button', { name: 'Simpan review wording', exact: true }).click();
+  }
+}
+
+test('first visit tour remains keyboard accessible and does not write case evidence', async ({ page }) => {
   await page.goto('/');
   const dialog = page.getByRole('dialog', { name: 'Satu kasus, dari quotation sampai binding' });
   await expect(dialog).toBeVisible();
   await expect(page.locator('#tour-title')).toBeFocused();
   await page.getByRole('button', { name: 'Lanjut', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Ikuti tahap, bolak-balik bila perlu' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('.tour-dialog')).not.toBeVisible();
   await expect(page.getByRole('heading', { name: 'Bahan renewal', exact: true })).toBeVisible();
@@ -40,225 +73,137 @@ test('first visit tour is dismissible, keyboard accessible, replayable, and chan
   expect(await page.evaluate(key => localStorage.getItem(key), CASE_STORAGE_KEY)).toBeNull();
 });
 
-test('whole renewal journey through negotiation, clarification, Word export, consent, and binding', async ({ page }) => {
-  test.setTimeout(120_000);
-  const browserErrors: string[] = [];
-  page.on('pageerror', error => browserErrors.push(error.message));
+test('manual wording review enables an early QS with exact rates and unconfirmed historical risk', async ({ page }) => {
   await seed(page);
   await page.goto('/');
+  await expect(page.locator('#role-select option[value="insurer"]')).toHaveCount(0);
   await expect(page.locator('#role-select option[value="client"]')).toBeDisabled();
-  await page.getByRole('button', { name: 'Lihat dokumen', exact: true }).first().click();
-  await expect(page.getByRole('dialog', { name: 'Final slip 2026' })).toContainText('Automatic Reinstatement');
-  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('send-quote')).toBeDisabled();
+  await reviewWording(page);
   await page.getByTestId('send-quote').click();
-  await role(page, 'insurer');
-  await page.getByRole('button', { name: 'Ubah T&C', exact: true }).click();
-  await page.getByLabel('Rate dalam persen').fill('0.14');
-  await page.getByLabel('Alasan perubahan T&C').fill('Penyesuaian risiko dalam simulasi.');
-  await page.getByRole('button', { name: 'Kirim counter terms', exact: true }).click();
-  await role(page, 'broker');
-  await page.getByRole('button', { name: 'Ubah T&C', exact: true }).click();
-  await page.getByLabel('Rate dalam persen').fill('0.11');
-  await page.getByLabel('Alasan perubahan T&C').fill('Negosiasi berdasarkan nihil klaim.');
-  await page.getByRole('button', { name: 'Simpan usulan T&C' }).click();
-  await page.getByLabel('Isi usulan amandemen', { exact: true }).fill('Perluasan biaya pemadaman sampai Rp50.000.000 (fiktif).');
-  await page.getByRole('button', { name: 'Ajukan amandemen', exact: true }).click();
-  await page.getByTestId('send-quote').click();
-  await role(page, 'insurer');
-  await page.getByLabel('Catatan tanggapan asuransi').fill('Diterima untuk contoh renewal ini.');
-  await page.getByRole('button', { name: 'Terima amandemen', exact: true }).click();
-  await role(page, 'broker');
-  await page.getByTestId('send-quote').click();
-  await role(page, 'insurer');
-  await page.getByTestId('insurer-agree').click();
-  await role(page, 'broker');
-  await stage(page, 'Proposal klien');
-  await page.getByTestId('send-proposal').click();
-  await expect(page.locator('#client-name-bekasi')).toHaveCount(0);
-  await role(page, 'client');
-  await page.getByTestId('sample-response').click();
-  await page.getByTestId('client-submit').click();
-  expect((await saved(page)).insurerAgreement).toBeNull();
-  await role(page, 'broker');
-  await stage(page, 'Rekonsiliasi data');
-  await page.getByTestId('match-bekasi').click();
-  await page.getByTestId('match-tangerang').click();
-  await expect(page.getByTestId('match-cikarang')).toBeDisabled();
-  const cikarang = page.locator('#location-cikarang');
-  await expect(cikarang).toContainText('1.500.000.000');
-  await expect(cikarang).toContainText('1.800.000.000');
-  await cikarang.getByRole('button', { name: 'Minta klarifikasi' }).click();
-  await cikarang.getByLabel('Rincian yang perlu diklarifikasi').fill('Pastikan alamat Cikarang Baru dan apakah depot lama yang berganti nama.');
-  await cikarang.getByRole('button', { name: 'Kirim permintaan klarifikasi' }).click();
-  await stage(page, 'Final review');
-  await expect(page.getByTestId('export-docx')).toBeDisabled();
-  await role(page, 'client');
-  await page.getByTestId('sample-clarification').click();
-  await page.getByTestId('client-submit').click();
-  await role(page, 'broker');
-  await stage(page, 'Rekonsiliasi data');
-  await page.getByTestId('match-cikarang').click();
-  expect((await saved(page)).locations.every(location => location.review === 'matched')).toBe(true);
+  const state = await saved(page);
+  expect(state.quoteSnapshots).toHaveLength(1);
+  expect(state.locations.every(location => location.confirmation === null)).toBe(true);
+  expect(state.quoteSnapshots[0].locations.every(location => !location.currentConfirmed)).toBe(true);
+  expect(state.terms.premiumLines[0].rate.value).toBe('0.0483');
   await stage(page, 'Review asuransi');
-  await page.getByTestId('send-quote').click();
-  await role(page, 'insurer');
-  await page.getByTestId('insurer-agree').click();
-  await role(page, 'broker');
-  await stage(page, 'Proposal klien');
-  await page.getByTestId('send-proposal').click();
-  await stage(page, 'Final review');
-  for (const key of ['identity', 'period', 'rate', 'deductible', 'clauses']) await page.getByTestId(`check-${key}`).check();
-  const wordDownload = page.waitForEvent('download');
-  await page.getByTestId('export-docx').click();
-  const word = await wordDownload;
-  expect(word.suggestedFilename()).toMatch(/draft-renewal\.docx$/);
-  expect((await readFile((await word.path())!)).length).toBeGreaterThan(1000);
-  await expect(page.getByTestId('request-binding')).toBeDisabled();
-  await role(page, 'client');
-  await page.getByTestId('client-agree').click();
-  await role(page, 'broker');
-  await page.getByTestId('request-binding').click();
-  await role(page, 'insurer');
-  await page.getByTestId('acknowledge-binding').click();
-  const completed = await saved(page);
-  expect(completed.bindingAcknowledgment?.revision).toBe(completed.revision);
-  expect(completed.terms.rateBps).toBe(11);
-  await page.getByLabel('Hal yang mudah, membingungkan, atau perlu diubah').fill('Cikarang perlu sumber yang jelas; alur dapat diselesaikan.');
-  const summaryDownload = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Unduh ringkasan sesi', exact: true }).click();
-  const summary = await summaryDownload;
-  const text = await readFile((await summary.path())!, 'utf8');
-  expect(text).toContain('Cikarang perlu sumber yang jelas');
-  expect(text).toContain('Penghambat binding');
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: '.cache/qa/binding-desktop.png', fullPage: true });
-  await page.reload();
-  expect((await saved(page)).bindingAcknowledgment).toEqual(completed.bindingAcknowledgment);
-  await page.getByRole('button', { name: 'Ulangi tur', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Lewati tur' }).click();
-  expect((await saved(page)).revision).toBe(completed.revision);
-  expect(browserErrors).toEqual([]);
+  await expect(page.getByText('0,0483%', { exact: false }).first()).toBeVisible();
+  await expect(page.getByText('IDR 3.381.000,00', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('IDR 3.400.000,00', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Tidak dihitung: cover dikecualikan', { exact: true })).toBeVisible();
+  await stage(page, 'Bahan renewal');
+  const download = page.waitForEvent('download');
+  await page.getByTestId('export-qs').click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/\.docx$/);
+  expect((await readFile((await file.path())!)).length).toBeGreaterThan(1000);
 });
 
-test('saved state recovery and reset preserve the old payload until confirmed', async ({ page }) => {
-  await seed(page);
-  await page.addInitScript(key => { if (!localStorage.getItem(key)) localStorage.setItem(key, '{broken'); }, CASE_STORAGE_KEY);
+test('a two-insurer panel completes the manual client, DFS and per-member binding journey', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await seed(page, quoteReadyCase());
   await page.goto('/');
-  await expect(page.getByRole('alert')).toContainText('Data lama belum ditimpa');
-  await page.getByTestId('send-quote').click();
-  expect(await page.evaluate(key => localStorage.getItem(key), CASE_STORAGE_KEY)).toBe('{broken');
+  await insurerResponse(page, 'insurer-a', 'Asuransi Fiktif A', '60', 'reply-utama', true);
+  await stage(page, 'Proposal klien');
+  await expect(page.getByTestId('publish-proposal')).toBeDisabled();
+  await addInsurerSource(page, 'insurer-reply', 'reply-b', 'Asuransi Fiktif B');
+  await addInsurerSource(page, 'binding-evidence', 'binding-b', 'Asuransi Fiktif B');
+  await insurerResponse(page, 'insurer-b', 'Asuransi Fiktif B', '40', 'reply-b');
+  await stage(page, 'Proposal klien');
+  await page.getByTestId('publish-proposal').click();
+  await role(page, 'client');
+  await page.getByRole('button', { name: 'Isi contoh: semua data tetap', exact: true }).click();
+  await page.getByTestId('submit-client-locations').click();
+  await page.getByLabel('Bukti keputusan / instruksi klien').fill('Saya setuju proposal terbaru ini (fiktif).');
+  await page.getByTestId('client-agree').click();
+  await page.getByLabel('Bukti keputusan / instruksi klien').fill('Saya menginstruksikan renewal sesuai proposal ini (fiktif).');
+  await page.getByTestId('client-instruct').click();
+  await role(page, 'broker');
+  await stage(page, 'Rekonsiliasi data');
+  for (const id of ['bekasi', 'tangerang', 'cikarang']) {
+    await page.locator('#match-note-' + id).fill('Cocok dengan konfirmasi klien yang tercatat.');
+    await page.getByTestId('match-' + id).click();
+  }
+  await stage(page, 'Final review');
+  for (const key of ['identity', 'period', 'rate', 'deductible', 'clauses']) await page.getByTestId('check-' + key).check();
+  await page.getByTestId('issue-dfs').click();
+  const wordDownload = page.waitForEvent('download');
+  await page.getByTestId('export-word').click();
+  const word = await wordDownload;
+  expect((await readFile((await word.path())!)).length).toBeGreaterThan(1000);
+  expect((await saved(page)).dfsSnapshots).toHaveLength(1);
+  await page.locator('#dispatch-reference').fill('FIKTIF-DISPATCH-PANEL-01');
+  await page.locator('#dispatch-recipient').fill('panel@example.invalid');
+  await page.locator('#dispatch-time').fill('2026-11-19T11:00');
+  await page.getByTestId('request-binding').click();
+  const acknowledge = async (id: string, source: string) => {
+    await page.locator('#ack-insurer').selectOption(id);
+    await page.locator('#ack-respondent').fill('Underwriter binding fiktif ' + id);
+    await page.locator('#ack-source').selectOption(source);
+    await page.locator('#ack-evidence').fill('Acknowledged pengiriman binding-1 / dfs-1, opsi utama (fiktif).');
+    await page.getByTestId('acknowledge-binding').click();
+  };
+  await acknowledge('insurer-a', 'binding-utama');
+  await expect(page.getByText('Menunggu acknowledgment setiap anggota', { exact: true }).first()).toBeVisible();
+  await acknowledge('insurer-b', 'binding-b');
+  const completed = await saved(page);
+  expect(completed.bindingRequests).toHaveLength(1);
+  expect(completed.bindingAcknowledgments).toHaveLength(2);
+  expect(completed.bindingAcknowledgments.every(item => item.recordedBy === 'broker-demo')).toBe(true);
+  expect(new Set(completed.bindingAcknowledgments.map(item => item.insurerId)).size).toBe(2);
+  await page.reload();
+  expect((await saved(page)).bindingAcknowledgments).toEqual(completed.bindingAcknowledgments);
+  expect(errors).toEqual([]);
+});
+
+for (const kind of ['corrupt', 'legacy'] as const) test(`${kind} storage is preserved byte-for-byte until a confirmed new-case reset`, async ({ page }) => {
+  const key = kind === 'legacy' ? LEGACY_CASE_STORAGE_KEY : CASE_STORAGE_KEY;
+  const raw = kind === 'legacy' ? '{ "schemaVersion": 1, "notes": "old notes" }' : '{broken';
+  await seed(page);
+  await page.addInitScript(({ key, raw }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, raw); }, { key, raw });
+  await page.goto('/');
+  await expect(page.getByRole('alert').first()).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw);
   const backupDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Unduh cadangan data lama' }).click();
   const backup = await backupDownload;
-  expect(await readFile((await backup.path())!, 'utf8')).toBe('{broken');
+  expect(await readFile((await backup.path())!, 'utf8')).toBe(raw);
   page.once('dialog', dialog => dialog.dismiss());
   await page.getByTestId('reset-case').click();
-  expect(await page.evaluate(key => localStorage.getItem(key), CASE_STORAGE_KEY)).toBe('{broken');
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw);
   page.once('dialog', dialog => dialog.accept());
   await page.getByTestId('reset-case').click();
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect((await saved(page)).schemaVersion).toBe(2);
   expect((await saved(page)).revision).toBe(1);
+  if (kind === 'legacy') expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(raw);
   await page.reload();
   await expect(page.locator('.tour-dialog')).not.toBeVisible();
 });
 
-test('quota and download errors remain visible while memory-only work can continue', async ({ page }) => {
-  await seed(page);
-  await page.addInitScript(() => {
-    const original = Storage.prototype.setItem;
-    Storage.prototype.setItem = function(key: string, value: string) {
-      if (key === 'ruang-renewal.case.v1') throw new DOMException('Quota exceeded', 'QuotaExceededError');
-      return original.call(this, key, value);
-    };
-    URL.createObjectURL = () => { throw new Error('Download blocked'); };
-  });
-  await page.goto('/');
-  await page.getByTestId('send-quote').click();
-  await expect(page.getByRole('alert')).toContainText('Progres belum berhasil disimpan');
-  await expect(page.getByRole('heading', { name: 'Review asuransi', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Ringkasan sesi', exact: true }).first().click();
-  await expect(page.getByRole('alert').last()).toContainText('Unduhan tidak dapat dimulai');
-});
-
-test('desktop, tablet, and phone views keep long comparison data inside the viewport', async ({ page }) => {
-  const partial = partialResponseCase();
-  partial.locations[2].proposed!.name = `Cikarang Baru ${'A'.repeat(140)}`;
-  partial.locations[2].confirmation!.source += ` Referensi-${'B'.repeat(160)}`;
-  await seed(page, partial);
-  await page.goto('/');
-  const sizes = [[1440, 900], [1366, 768], [1024, 768], [820, 1180], [768, 1024], [390, 844], [320, 844]];
-  for (const [width, height] of sizes) {
-    await page.setViewportSize({ width, height });
-    for (const label of ['Bahan renewal', 'Review asuransi', 'Rekonsiliasi data']) {
-      await stage(page, label);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `${label} at ${width}px`).toBeLessThanOrEqual(1);
-      if (label === 'Rekonsiliasi data') {
-        const clipped = await page.locator('.location-version p, .location-evidence p').evaluateAll(elements => elements.filter(el => el.scrollWidth > el.clientWidth + 1).length);
-        expect(clipped, `Readable client text at ${width}px`).toBe(0);
-      }
-    }
-    if ([1440, 390].includes(width)) await page.screenshot({ path: `.cache/qa/reconciliation-${width}.png`, fullPage: true });
-  }
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await role(page, 'client');
-  await expect(page.getByTestId('client-submit')).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-});
-
-test('Word generation and direct download errors do not clear readiness', async ({ page }) => {
-  await seed(page, exportReadyCase());
-  await page.addInitScript(() => { URL.createObjectURL = () => { throw new Error('Download denied'); }; });
+test('incomplete client evidence exposes DFS blockers and comparison data remains usable at six widths', async ({ page }) => {
+  const state = partialResponseCase();
+  state.locations[2].proposed!.name += ' ' + 'A'.repeat(140);
+  state.submissions.at(-1)!.locations[2].name = state.locations[2].proposed!.name;
+  await seed(page, state);
   await page.goto('/');
   await stage(page, 'Final review');
-  await expect(page.getByTestId('export-docx')).toBeEnabled();
-  await page.getByTestId('export-docx').click();
-  await expect(page.getByRole('alert')).toContainText('Unduhan tidak dapat dimulai');
-  await expect(page.getByTestId('export-docx')).toBeEnabled();
-  expect((await saved(page)).bindingRequest).toBeNull();
+  await expect(page.getByTestId('issue-dfs')).toBeDisabled();
+  for (const [width, height] of [[1440, 900], [1024, 768], [820, 1180], [768, 1024], [390, 844], [320, 844]]) {
+    await page.setViewportSize({ width, height });
+    for (const label of ['Bahan renewal', 'Review asuransi', 'Proposal klien', 'Rekonsiliasi data', 'Final review']) {
+      await stage(page, label);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `${label} at ${width}px`).toBeLessThanOrEqual(1);
+    }
+    if ([1440, 390, 320].includes(width)) {
+      await stage(page, 'Rekonsiliasi data');
+      await page.screenshot({ path: `.cache/qa/phase2-reconciliation-${width}.png`, fullPage: true });
+    }
+  }
 });
 
-test('unsent client changes block approval and survive tour or canceled navigation', async ({ page }) => {
-  await seed(page, exportReadyCase());
-  await page.goto('/');
-  await role(page, 'client');
-  await expect(page.getByTestId('client-agree')).toBeEnabled();
-  await page.locator('#client-value-bekasi').fill('4300000000');
-  await expect(page.getByTestId('client-agree')).toBeDisabled();
-  await expect(page.getByText('Kirim tanggapan klien, simpan perubahan T&C, atau ajukan amandemen terlebih dahulu agar perubahan masuk ke proposal.')).toBeVisible();
-  await page.getByRole('button', { name: 'Ulangi tur', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Lanjut', exact: true }).click();
-  await page.getByRole('button', { name: 'Lewati tur' }).click();
-  await expect(page.locator('#client-value-bekasi')).toHaveValue('4300000000');
-  page.once('dialog', dialog => dialog.dismiss());
-  await stage(page, 'Rekonsiliasi data');
-  await expect(page.locator('#client-value-bekasi')).toHaveValue('4300000000');
-  await page.locator('#client-value-bekasi').fill('4200000000');
-  await expect(page.getByTestId('client-agree')).toBeEnabled();
-  await page.getByText('Ajukan perubahan T&C sebagai klien', { exact: true }).click();
-  await page.getByRole('button', { name: 'Ubah T&C', exact: true }).click();
-  await page.getByLabel('Rate dalam persen').fill('0.11');
-  await expect(page.getByTestId('client-agree')).toBeDisabled();
-  await page.locator('#client-value-bekasi').fill('4300000000');
-  await page.getByLabel('Alasan perubahan T&C').fill('Usulan yang belum dikirim.');
-  page.once('dialog', dialog => dialog.dismiss());
-  await page.getByRole('button', { name: 'Simpan usulan T&C' }).click();
-  expect((await saved(page)).terms.rateBps).toBe(12);
-  await expect(page.locator('#client-value-bekasi')).toHaveValue('4300000000');
-  await expect(page.getByLabel('Rate dalam persen')).toHaveValue('0.11');
-  await page.getByRole('button', { name: 'Batalkan perubahan', exact: true }).click();
-  await page.getByLabel('Isi usulan amandemen', { exact: true }).fill('Usulan yang belum dikirim.');
-  await expect(page.getByTestId('client-agree')).toBeDisabled();
-  page.once('dialog', dialog => dialog.dismiss());
-  await page.getByRole('button', { name: 'Ajukan amandemen', exact: true }).click();
-  expect((await saved(page)).amendments).toHaveLength(0);
-  await expect(page.locator('#client-value-bekasi')).toHaveValue('4300000000');
-  page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('button', { name: 'Ajukan amandemen', exact: true }).click();
-  expect((await saved(page)).amendments).toHaveLength(1);
-  await expect(page.locator('#client-value-bekasi')).toHaveValue('4200000000');
-});
-
-test('keyboard skip link, source dialogs, and stage navigation retain useful focus', async ({ page }) => {
+test('source dialogs and keyboard navigation retain focus without recording decisions', async ({ page }) => {
   await seed(page);
   await page.goto('/');
   await page.keyboard.press('Tab');
@@ -267,25 +212,99 @@ test('keyboard skip link, source dialogs, and stage navigation retain useful foc
   await expect(page.locator('#main')).toBeFocused();
   const sourceButton = page.getByRole('button', { name: 'Lihat dokumen', exact: true }).first();
   await sourceButton.click();
-  await expect(page.getByRole('button', { name: 'Tutup dokumen' })).toBeFocused();
+  const source = page.getByRole('dialog', { name: 'Final slip 2026' });
+  await expect(source).toContainText('Automatic Reinstatement');
   await page.keyboard.press('Escape');
   await expect(sourceButton).toBeFocused();
   await stage(page, 'Rekonsiliasi data');
-  await expect(page.getByRole('heading', { name: 'PT Arunika Manufaktur Indonesia', exact: true })).toBeFocused();
-  await expect(page.getByLabel('Peran simulasi')).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), CASE_STORAGE_KEY)).toBeNull();
 });
 
-test('broker terms drafts are protected when another form is submitted', async ({ page }) => {
-  await seed(page, exportReadyCase());
+test('unsent client values disable agreement and role changes reset drafts only after confirmation', async ({ page }) => {
+  await seed(page, proposalReadyCase());
   await page.goto('/');
-  await stage(page, 'Review asuransi');
-  await page.getByRole('button', { name: 'Ubah T&C', exact: true }).click();
-  await page.getByLabel('Rate dalam persen').fill('0.11');
-  await page.getByLabel('Alasan perubahan T&C').fill('Draft negosiasi belum dikirim.');
-  await page.getByLabel('Isi usulan amandemen', { exact: true }).fill('Draft amandemen lain.');
+  await role(page, 'client');
+  const amount = page.locator('#client-value-bekasi');
+  await amount.fill('4300000000.12');
+  await expect(page.getByTestId('client-agree')).toBeDisabled();
   page.once('dialog', dialog => dialog.dismiss());
-  await page.getByRole('button', { name: 'Ajukan amandemen', exact: true }).click();
-  expect((await saved(page)).amendments).toHaveLength(0);
-  await expect(page.getByLabel('Rate dalam persen')).toHaveValue('0.11');
-  expect((await saved(page)).terms.rateBps).toBe(12);
+  await role(page, 'broker');
+  await expect(page.getByLabel('Peran simulasi')).toHaveValue('client');
+  await expect(amount).toHaveValue('4300000000.12');
+  page.once('dialog', dialog => dialog.accept());
+  await role(page, 'broker');
+  await role(page, 'client');
+  await expect(amount).toHaveValue('3500000000');
+  expect((await saved(page)).locations[0].proposed).toBeNull();
+});
+
+test('client clarification continues against the published proposal while stale consent stays blocked', async ({ page }) => {
+  const initial = partialResponseCase();
+  const original = structuredClone(initial.locations[2].proposed!);
+  await seed(page, initial);
+  await page.goto('/');
+  await role(page, 'client');
+  await expect(page.getByTestId('submit-client-locations')).toBeEnabled();
+  await page.locator('#client-address-cikarang').fill(initial.locations[2].prior.address);
+  await page.locator('#client-evidence-cikarang').fill('Klien mengklarifikasi alamat Cikarang melalui email fiktif.');
+  await page.locator('#client-locations fieldset').nth(2).getByRole('checkbox').check();
+  await page.getByTestId('submit-client-locations').click();
+  const updated = await saved(page);
+  expect(updated.locations[2].proposed).toEqual({ ...original, address: initial.locations[2].prior.address });
+  expect(updated.locations[2].confirmation?.confirmed).toBe(true);
+  expect(updated.locations[2].confirmation?.source).toContain('mengklarifikasi alamat Cikarang');
+  expect(updated.locations.slice(0, 2).map(location => location.proposed)).toEqual(initial.locations.slice(0, 2).map(location => location.proposed));
+  expect(updated.revision).toBe(initial.revision + 1);
+  expect(updated.proposals).toEqual(initial.proposals);
+  expect(updated.activeProposalId).toBe(initial.activeProposalId);
+  expect(updated.submissions).toHaveLength(initial.submissions.length + 1);
+  await expect(page.getByTestId('client-agree')).toBeDisabled();
+});
+
+test('a failed Word download keeps the current DFS and reports the error', async ({ page }) => {
+  await seed(page, exportReadyCase());
+  await page.addInitScript(() => { URL.createObjectURL = () => { throw new Error('Download denied'); }; });
+  await page.goto('/');
+  await stage(page, 'Final review');
+  await expect(page.getByTestId('export-word')).toBeEnabled();
+  await page.getByTestId('export-word').click();
+  await expect(page.getByRole('alert').last()).toContainText('Unduhan');
+  await expect(page.getByTestId('export-word')).toBeEnabled();
+  expect((await saved(page)).dfsSnapshots).toHaveLength(1);
+  expect((await saved(page)).bindingRequests).toHaveLength(0);
+});
+
+test('quota failure on an existing saved case permits subsequent memory-only work', async ({ page }) => {
+  const initial = quoteReadyCase();
+  await page.addInitScript(({ key, initial }) => {
+    localStorage.setItem('ruang-renewal.tour.v1', 'seen');
+    localStorage.setItem(key, JSON.stringify(initial));
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(name: string, value: string) {
+      if (name === key) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      return original.call(this, name, value);
+    };
+  }, { key: CASE_STORAGE_KEY, initial });
+  await page.goto('/');
+  await addInsurerSource(page, 'insurer-reply', 'memory-one', 'Asuransi Fiktif B');
+  await expect(page.getByRole('alert').first()).toContainText('belum berhasil disimpan');
+  await addInsurerSource(page, 'binding-evidence', 'memory-two', 'Asuransi Fiktif B');
+  await expect(page.getByText('10 dokumen', { exact: true })).toBeVisible();
+  expect((await saved(page)).documents).toHaveLength(8);
+  expect((await saved(page)).lockVersion).toBe(initial.lockVersion);
+});
+
+test('a sequential stale-tab write is rejected and retains the unsaved form', async ({ page }) => {
+  await seed(page, quoteReadyCase());
+  await page.goto('/');
+  const other = await page.context().newPage();
+  await other.goto('/');
+  await addInsurerSource(other, 'insurer-reply', 'saved-in-other-tab', 'Asuransi Fiktif B');
+  await addInsurerSource(page, 'insurer-reply', 'unsaved-stale-draft', 'Asuransi Fiktif B');
+  await expect(page.getByRole('alert').last()).toContainText('tab lain');
+  await expect(page.locator('#doc-id')).toHaveValue('unsaved-stale-draft');
+  const state = await saved(page);
+  expect(state.documents.some(doc => doc.id === 'saved-in-other-tab')).toBe(true);
+  expect(state.documents.some(doc => doc.id === 'unsaved-stale-draft')).toBe(false);
+  await other.close();
 });

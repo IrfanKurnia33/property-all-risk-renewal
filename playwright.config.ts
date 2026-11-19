@@ -1,11 +1,4 @@
 import { defineConfig } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-const browserTemp = resolve('.cache/browser-temp');
-mkdirSync(browserTemp, { recursive: true });
-process.env.TMP = browserTemp;
-process.env.TEMP = browserTemp;
 
 export default defineConfig({
   testDir: './tests',
@@ -17,7 +10,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:4173',
-    channel: 'msedge',
+    channel: process.env.PLAYWRIGHT_CHANNEL || 'chromium',
     viewport: { width: 1440, height: 900 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

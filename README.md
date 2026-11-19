@@ -1,8 +1,22 @@
-# PAR renewal prototype
+# Rekonvia
 
-A usable interview prototype for Falih, based on [renewal flow v2](docs/renewal-flow-v2/renewal-flow-v2.md) and its diagrams. The interface uses Indonesian and supports a complete fictional Property All Risks renewal through broker, insurer, and client views.
+A fictional Property All Risks renewal workspace, based on [renewal flow v2](docs/research/renewal-flow-v2/renewal-flow-v2.md) and its diagrams. The Indonesian interface supports broker preparation, manual insurer coordination, client confirmation, reconciliation, DFS preparation and recorded binding correspondence.
 
-All people, documents, locations, amounts, confirmations, and communications in the case are fictional. Role switching simulates the participants on one device. Nothing is sent to an insurer or client. Use fictional data when testing.
+All people, documents, locations, amounts, confirmations and communications in the case are fictional. The role selector simulates a broker or client on one device. Brokers record external insurer responses and their sources; insurers have no portal role. Nothing is sent to an insurer or client. Use fictional data when testing.
+
+## v1 implementation
+
+The current Phase 2 implementation provides manual source inventory and three-way wording review, separate quotation options, individual insurer positions, decimal premium calculations, immutable snapshots and stage-specific readiness. It still runs locally in the browser. Supabase accounts and shared storage, the full three-template export set, and optional free-only AI assistance follow in later phases.
+
+Local development references:
+
+- [Implementation plan and phase status](docs/v1-plan/01-rekonvia-v1-implementation-plan.md).
+- [Research index and complete file manifest](docs/research/README.md).
+- [Latest evidence-linked synthesis](docs/research/post-prototype-research-plan/post-convo-analysis/11-consolidated-synthesis.md).
+
+These research and planning files are private and excluded from Git; they may be absent in a fresh checkout. Create the Supabase project at the **Phase 2 to Phase 3 handoff**, after the design foundation and domain/revision checks pass and before integrating authenticated shared storage. Phases 0–2 do not require a Supabase project.
+
+Incorporate OpenRouter in **Phase 5**, after the authenticated backend and complete manual workflow with all three exports have passed their checks. Store its API key only as a server secret for an authenticated broker-only Edge Function. Never put it in a `VITE_*` environment variable or browser code. The planned integration uses free-only routing with manual fallback; the current app makes no AI requests.
 
 ## Run locally
 
@@ -26,47 +40,66 @@ Run automated checks:
 npm test
 ```
 
-On Windows, if PowerShell blocks `npm.ps1`, use `npm.cmd` in place of `npm` in these commands. Browser journey checks use the locally installed Microsoft Edge browser:
+On Windows, if PowerShell blocks `npm.ps1`, use `npm.cmd` in place of `npm` in these commands. Install the repository-local Chromium browser once, then run the browser checks:
 
 ```powershell
+npm run test:e2e:install
 npm run test:e2e
 ```
 
-Install Microsoft Edge first if it is not available. Playwright uses its `msedge` channel; test reports and browser artifacts stay inside this repository.
+The launcher keeps browser downloads and temporary files in `.cache/` inside this repository. It sets the browser path before loading Playwright; setting it in the test configuration would be too late. To use an existing browser instead, set `$env:PLAYWRIGHT_CHANNEL = 'chrome'` or `'msedge'` for that PowerShell session. No global browser installation or configuration change is required.
 
-The project uses React, TypeScript, Vite, and plain CSS. Word downloads use `docx`; the archive-content tests use `fflate`. No backend, API keys, or environment variables are required.
+The project uses React, TypeScript, Vite, and Tailwind CSS v4. Word downloads use `docx`; the archive-content tests use `fflate`. No backend or API keys are required for the current local simulation.
+
+## Design system
+
+The [brand specification](docs/rekonvia-brand-palette-v1.0.md) and [CSS-first theme](src/styles/rekonvia-theme.css) define Rekonvia's colors and typography. `main.tsx` imports the theme once. It imports the retained [stage stylesheet](src/styles/styles.css) in the components layer, so semantic Tailwind utilities can replace individual views incrementally.
+
+The 66 primitive shades are emitted with `@theme static`; semantic aliases live in `:root` and are exposed through `@theme inline`. See [Tailwind's theme guidance](https://tailwindcss.com/docs/theme). Shared controls and navigation use those semantic utilities. Native stage fields and remaining layouts use the compatibility aliases until their later migration.
+
+Original logo SVGs remain in `public/assets/logos/`. Inter and Plus Jakarta Sans load from [self-hosted font files with licenses and attribution](public/assets/fonts/README.md); there are no runtime font requests to a third party. The app stays light by default and respects reduced motion.
+
+After building, verify exact brand values, original SVG hashes, fonts and production CSS:
+
+```powershell
+npm run build
+npm run test:brand
+```
 
 ## Test with Falih
 
-1. Open the app in a normal browser window. Follow or skip the first-visit tour. Use **Ulangi tur** to replay it; replaying the tour does not change the case.
-2. As **Broker**, inspect the previous-period final slip and Standard T&C in **Bahan renewal**, then send the quotation to the insurer.
-3. Switch to **Asuransi** in **Review asuransi**. Review the terms, propose a change, and send it back. Return as Broker, respond, and repeat until the insurer agrees with the current revision. Check occupation, dates, rate, deductible, coverages, claims history, and separate clause amendments.
-4. As Broker, send the first proposal in **Proposal klien**. The **Klien** view becomes available only after this step.
-5. As Klien, submit the sample update: Bekasi changes from Rp3.5 billion to Rp4.2 billion; Tangerang stays at Rp2 billion and still needs explicit confirmation; Cikarang proposes Rp1.8 billion from Rp1.5 billion with an unclear address.
-6. As Broker, use **Rekonsiliasi data** to inspect each historical value, update, source, and status. Review/match the confirmed locations. Follow up on Cikarang. Try the Word export: blockers should explain what remains unresolved and offer a way to resolve each item.
-7. As Klien, send the sample clarification for Cikarang with its complete address and confirmation. Return as Broker and match the clarified location. The broker cannot type a location or sum insured on behalf of the client.
-8. Return the changed risk details to insurer review and obtain agreement for the current revision. Send the updated proposal when prompted; earlier agreements must no longer satisfy the latest revision.
-9. As Broker, complete the final checks. Resolve any pending clause amendments separately from the original wording. Download the editable Word draft when all export blockers are cleared and inspect its confirmed values, provenance, period, premium, and clauses.
-10. As Klien, agree to the current proposal. As Broker, request binding. As Asuransi, record acknowledgment. Confirm that coverage status follows the agreed coverage dates rather than the click date.
-11. Add interview notes and download the Markdown session summary. It remains available while the case has unresolved blockers. Refresh the page to verify progress resumes, then use the confirmed reset to start a fresh case.
+1. Open the app. Follow or skip the first-visit tour; **Ulangi tur** replays it without changing case data. If old saved progress is detected, download its backup and confirm a fresh version 2 case before continuing.
+2. As **Broker**, inspect the source inventory in **Bahan renewal**. Check document class, period, producer, option, status and immutable version. The source dialog shows manually entered fictional excerpts; no file has been uploaded or verified.
+3. Review each prior agreed clause, outgoing QS wording and insurer reply. Record a disposition, explanation and any unresolved question. Preserve historical words. A rejected new enhancement and withdrawal of a previously agreed clause have different meanings.
+4. Inspect each premium line: decimal rate, percent or per-mille unit, peril, inclusion and sum-insured basis. The initial 0.0483% rate on IDR 7 billion yields an illustrative IDR 3,381,000.00, separate from the insurer-recorded premium. The populated earthquake rate does not include earthquake cover. Each illustrative line rounds half-up to two decimal places.
+5. Prepare the reviewed QS snapshot and download its editable Word file. Historical locations and sums insured are labeled unconfirmed; current client confirmation is not required for this early quotation draft.
+6. In **Review asuransi**, remain **Broker** and record an external response. Identify the insurer, external respondent, date, exact QS/version, share, terms, conditions and supporting source. Outreach and leader agreement alone do not establish a full panel. Compatible individual participation must total 100% for this pilot's proposal.
+7. Publish the selected option in **Proposal klien**. Alternatives remain separate. Switching options supersedes the active proposal while preserving earlier snapshots and responses.
+8. Switch to **Klien** after publication. Confirm every current-period location, address and sum insured, including unchanged values. Try an unclear address or withdrawn confirmation and inspect the blockers. The broker cannot provide client confirmation.
+9. Return as **Broker** to **Rekonsiliasi data** and match the client evidence or request clarification. If risk values or terms change, prepare a fresh QS and obtain version-matching external insurer positions before publishing the updated proposal.
+10. As **Klien**, agree to the current proposal and provide a separate renewal instruction. As **Broker**, resolve required insurer conditions and complete the final checks, prepare the DFS snapshot, and download its editable Word draft. Inspect exact wording, calculation units, client evidence and source/version provenance.
+11. Record the manual binding dispatch with channel, recipient, date and reference. Record external acknowledgment separately for each participating insurer. A leader's response covers only that member; coverage status follows the agreed period after the required acknowledgments are recorded.
+12. Add session notes and download the Markdown summary at any stage. Refresh to verify saved progress, then use the confirmed reset to start again.
 
-Also test the role selector, keyboard navigation, mobile layout, tour dismissal/replay, and a changed client value after insurer agreement. All affected checks and agreements should become stale.
+Also test keyboard navigation, mobile comparisons, tour replay, unsent edits and role changes. Material changes should make affected decisions and snapshots stale while retaining their history. Notes and source annotations should advance only the save version.
 
 ## Saved progress and downloads
 
-Progress is saved in `localStorage` for this site in the current browser. Opening a different browser, profile, device, or deployment domain starts a separate case. Clearing site data removes that browser's progress. The tour's completion state is stored separately from the case. Save failures or unreadable saved data are reported in the interface; reset requires confirmation.
+Progress is saved in `localStorage` under `rekonvia.case.v2` for this site in the current browser. Opening a different browser, profile, device or deployment domain starts a separate case. Clearing site data removes that browser's progress. The tour's completion state is stored separately from the case. Save failures or unreadable saved data are reported in the interface; reset requires confirmation.
+
+Earlier progress under `ruang-renewal.case.v1` is preserved separately. The app offers a raw backup and requires a confirmed fresh case; old simulated decisions are not converted into new evidence. Invalid version 2 data also remains untouched until a confirmed reset.
 
 Successful actions save case progress. Unsent form edits stay on the current page; the app warns before stage or role navigation discards client edits. Submit them before refreshing or closing the browser. Replaying the tour preserves those edits.
 
-Use one tab for the case: tabs in the same browser share storage, and the last saved change wins without merging or synchronizing open tabs.
+Use one tab for the case. The app checks the saved version before a command and rejects a detected stale tab, allowing unsent work to be copied before reload. Browser storage cannot atomically coordinate simultaneous writes; the authenticated server phase adds that guarantee.
 
-The `.docx` file is an editable simulated renewal draft, not an issued policy. The exporter checks readiness again before creating it. Original clauses remain verbatim, with amendment decisions in their own section. The Markdown session summary includes revision, timeline, separate export and binding blockers, coverage status, and test notes.
+The current editable `.docx` outputs are a basic QS and a guarded DFS draft from saved snapshots. Full QS/proposal/DFS templates arrive in Phase 4. Direct exporters recheck readiness and reject stale snapshots. Word files retain exact source wording, separate comparison decisions, source references, decimal units and evidence attribution. The Markdown summary includes revisions, external insurer positions, retained client decisions, stage blockers, coverage status and session notes.
 
 If a browser blocks downloads, allow downloads for the site and retry. The application can report document generation or download setup failures; the browser controls the final save and cannot report every canceled or blocked download to the app.
 
 ## Publish from GitHub to Vercel
 
-Git excludes the historical `docs/renewal-flow-v1/` folder, installed skill packages, dependencies, build outputs, caches, editor settings, and test reports. These files remain available locally. The current v2 flow, application source, tests, and skill provenance records are included. A fresh checkout needs its own local skill installation if those development tools are wanted; versions and adaptations are recorded in `.agents/skills/README.md` and `.agents/skills/sources.lock.json`.
+Git excludes all of `docs/research/` and `docs/v1-plan/`, installed skill packages, dependencies, build outputs, caches, editor settings, and test reports. The research exclusion includes the current v2 flow, historical v1 flow, interviews, recordings and their analysis. These files remain available locally. Application source, tests, brand assets and skill provenance records can be versioned. A fresh checkout needs its own local research files and skill installation if those development references and tools are wanted; skill versions and adaptations are recorded in `.agents/skills/README.md` and `.agents/skills/sources.lock.json`.
 
 1. Commit the application source and `package-lock.json` to your GitHub repository. Do not commit `node_modules`, `dist`, browser profiles, screenshots, caches, or local tool runtimes.
 2. In Vercel, add a new project and import that repository.
@@ -77,6 +110,6 @@ Vercel's [Vite deployment guide](https://vercel.com/docs/frameworks/frontend/vit
 
 ## Boundaries
 
-This version has one editable fictional case. It has no authentication, shared storage, real uploads/document extraction, AI extraction, email delivery, invoicing, policy administration, or endorsements. Switching roles is a testing convenience and is not an authorization system. Do not use it for real binding instructions or policy issuance.
+This version has one editable fictional case with two separate quotation options. It has no authentication, shared storage, real uploads/document extraction, AI extraction, email delivery, invoicing, policy administration or endorsements. Source references and excerpts are manually recorded fictional evidence. Switching roles is a testing convenience and is not an authorization system. Do not use it for real binding instructions or policy issuance.
 
-See [prototype design and skill adaptations](docs/prototype-design.md) for the workflow choices and [validation results](docs/prototype-validation.md) for automated checks, Word verification, and the remaining Taste findings. The existing skills and historical flow documents remain unchanged.
+See the local [prototype design and skill adaptations](docs/research/prototype-design.md) for the workflow choices and [validation results](docs/research/prototype-validation.md) for automated checks, Word verification, and the remaining Taste findings. Their recorded results describe the earlier prototype; consult the v1 plan for the current implementation status.

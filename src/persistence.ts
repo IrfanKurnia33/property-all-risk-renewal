@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import { applyAction, createInitialCase, isRenewalCase } from './domain.ts';
-import type { CaseAction, RenewalCase, Role } from './domain.ts';
+import type { Actor, CaseAction, RenewalCase } from './domain.ts';
 
-export const CASE_STORAGE_KEY = 'ruang-renewal.case.v1';
+export const CASE_STORAGE_KEY = 'rekonvia.case.v2';
+export const LEGACY_CASE_STORAGE_KEY = 'ruang-renewal.case.v1';
 type CaseStorage = Pick<Storage, 'getItem' | 'setItem'>;
 type LoadedCase = { state: RenewalCase; storageError: string; recoveryRequired: boolean };
 
@@ -15,7 +16,11 @@ export function readStoredCase(storage: CaseStorage | null): LoadedCase {
   if (!storage) return { state: initial, recoveryRequired: false, storageError: 'Penyimpanan browser tidak tersedia. Progres hanya tersimpan selama halaman ini terbuka; unduh ringkasan sebelum menutupnya.' };
   try {
     const raw = storage.getItem(CASE_STORAGE_KEY);
-    if (raw === null) return { state: initial, storageError: '', recoveryRequired: false };
+    if (raw === null) {
+      const legacy = storage.getItem(LEGACY_CASE_STORAGE_KEY);
+      return legacy === null ? { state: initial, storageError: '', recoveryRequired: false }
+        : { state: initial, recoveryRequired: true, storageError: 'Data simulasi lama tersedia. Unduh cadangannya, lalu mulai kasus versi baru. Data lama tidak akan diubah atau dipakai sebagai bukti baru.' };
+    }
     const value: unknown = JSON.parse(raw);
     if (!isRenewalCase(value)) throw new Error('Invalid saved case');
     return { state: value, storageError: '', recoveryRequired: false };
@@ -35,7 +40,8 @@ export function writeStoredCase(storage: CaseStorage | null, state: RenewalCase)
 }
 
 export function downloadStoredBackup(): void {
-  const raw = browserStorage()?.getItem(CASE_STORAGE_KEY);
+  const storage = browserStorage();
+  const raw = storage?.getItem(CASE_STORAGE_KEY) ?? storage?.getItem(LEGACY_CASE_STORAGE_KEY);
   if (!raw) throw new Error('Tidak ada data tersimpan yang dapat dicadangkan.');
   const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
   const link = document.createElement('a');
@@ -49,15 +55,26 @@ export function useRenewalCase() {
   const [loaded, setLoaded] = useState(() => readStoredCase(browserStorage()));
   const [error, setError] = useState('');
   const current = useRef(loaded.state);
+  const persistedVersion = useRef(loaded.state.lockVersion);
 
-  function dispatch(role: Role, action: CaseAction): boolean {
+  function dispatch(actor: Actor, action: CaseAction): boolean {
     if (loaded.recoveryRequired) {
       setError('Mulai ulang kasus setelah mencadangkan data lama untuk mengaktifkan perubahan.');
       return false;
     }
     try {
-      const state = applyAction(current.current, role, action);
-      const storageError = writeStoredCase(browserStorage(), state);
+      const storage = browserStorage();
+      // shortcut: browser version checks cannot atomically commit across tabs; replace with server commands at the Phase 3 authenticated cutover.
+      const raw = storage?.getItem(CASE_STORAGE_KEY);
+      if (raw) {
+        const stored: unknown = JSON.parse(raw);
+        if (!isRenewalCase(stored) || stored.lockVersion !== persistedVersion.current) {
+          throw new Error('Kasus berubah di tab lain. Salin isian yang belum disimpan, lalu muat ulang untuk meninjau versi terbaru.');
+        }
+      }
+      const state = applyAction(current.current, actor, action, current.current.lockVersion);
+      const storageError = writeStoredCase(storage, state);
+      if (!storageError) persistedVersion.current = state.lockVersion;
       current.current = state;
       setLoaded({ state, storageError, recoveryRequired: false });
       setError('');
@@ -72,6 +89,7 @@ export function useRenewalCase() {
     if (!window.confirm('Mulai ulang kasus contoh? Progres dan catatan kasus ini akan diganti. Status tur tetap disimpan.')) return false;
     const state = createInitialCase();
     const storageError = writeStoredCase(browserStorage(), state);
+    if (!storageError) persistedVersion.current = state.lockVersion;
     current.current = state;
     setLoaded({ state, storageError, recoveryRequired: false });
     setError('');

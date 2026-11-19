@@ -1,5 +1,5 @@
 {
-  "name": "par-renewal-prototype",
+  "name": "rekonvia",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -12,7 +12,9 @@
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test": "node --test src/*.test.ts",
-    "test:e2e": "npm run build && playwright test"
+    "test:brand": "node scripts/verify-brand.mjs",
+    "test:e2e:install": "node scripts/playwright.mjs install chromium --no-shell",
+    "test:e2e": "npm run build && node scripts/playwright.mjs test"
   },
   "dependencies": {
     "docx": "9.15.3",
@@ -21,11 +23,13 @@
   },
   "devDependencies": {
     "@playwright/test": "1.65.0",
+    "@tailwindcss/vite": "4.3.5",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.3.0",
     "fflate": "0.8.3",
+    "tailwindcss": "4.3.5",
     "typescript": "7.0.2",
     "vite": "8.3.8"
   }

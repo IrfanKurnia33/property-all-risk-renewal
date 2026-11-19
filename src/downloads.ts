@@ -1,17 +1,18 @@
 import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from 'docx';
-import { getBindingBlockers, getCoverageStatus, getExportBlockers } from './domain.ts';
-import type { RenewalCase } from './domain.ts';
+import {
+  getActiveProposal, getBindingBlockers, getCoverageStatus, getCurrentBindingRequest, getCurrentDfs,
+  getCurrentQuote, getCurrentResponses, getExportBlockers, getProposalBlockers, getQsBlockers, isRenewalCase,
+} from './domain.ts';
+import type { RenewalCase, SourceReference, Terms, WordingItem } from './domain.ts';
+import { addDecimals, calculatePremium, formatDecimal, PREMIUM_ROUNDING } from './decimal.ts';
+import type { Money } from './decimal.ts';
 
-const currency = (value: number) => new Intl.NumberFormat('id-ID', {
-  style: 'currency', currency: 'IDR', maximumFractionDigits: 0,
-}).format(value);
-
+const money = (value: Money) => `${value.currency} ${formatDecimal(value.amount, 2)}`;
 const stageLabels = {
   materials: 'Bahan renewal', insurer: 'Review asuransi', proposal: 'Proposal klien',
   reconciliation: 'Rekonsiliasi data', final: 'Final review & binding',
 };
-
-const roleLabels = { broker: 'Broker', insurer: 'Asuransi', client: 'Klien' };
+const roleLabels = { broker: 'Broker', client: 'Klien' };
 const filename = (state: RenewalCase, suffix: string) => `${state.id.replace(/[^a-zA-Z0-9-]/g, '-')}-r${state.revision}-${suffix}`;
 const paragraph = (text: string) => new Paragraph({
   children: text.split(/\r?\n/).map((line, index) => new TextRun({ text: line, ...(index ? { break: 1 } : {}) })),
@@ -20,90 +21,119 @@ const paragraph = (text: string) => new Paragraph({
 const heading = (text: string) => new Paragraph({ text, heading: HeadingLevel.HEADING_1, spacing: { before: 260, after: 140 } });
 const row = (cells: string[], header = false) => new TableRow({
   tableHeader: header,
-  children: cells.map((text) => new TableCell({
-    children: [new Paragraph({ children: [new TextRun({ text, bold: header })] })],
-    margins: { top: 100, bottom: 100, left: 100, right: 100 },
+  children: cells.map(text => new TableCell({
+    children: [paragraph(text)], margins: { top: 100, bottom: 100, left: 100, right: 100 },
   })),
 });
+const table = (rows: string[][]) => new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: rows.map((cells, index) => row(cells, index === 0)) });
+const citation = (source: SourceReference | null) => source ? `${source.documentVersionId} · ${source.locator}` : 'Tidak ada sumber pada peran ini.';
 
-/** The same readiness guard protects the UI and direct calls to the exporter. */
-export function buildRenewalDocument(state: RenewalCase): Document {
-  const blockers = getExportBlockers(state);
-  if (blockers.length) {
-    throw new Error(`Draft Word belum dapat diekspor: ${blockers.map((blocker) => blocker.label).join('; ')}`);
-  }
+function termsContent(terms: Terms): (Paragraph | Table)[] {
+  const calculated = terms.premiumLines.map(calculatePremium);
+  return [
+    table([
+      ['Rincian', 'Terms pada snapshot'], ['Okupasi', terms.occupation],
+      ['Periode', `${terms.periodStart} s.d. ${terms.periodEnd}`], ['Mata uang', terms.currency],
+      ['Deductible', terms.deductible], ['Perluasan / pengecualian', terms.additionalCoverage], ['Riwayat klaim', terms.lossHistory],
+    ]),
+    table([
+      ['Peril / penerapan', 'Basis', 'Rate / unit', 'Premi ilustratif', 'Premi tercatat insurer'],
+      ...terms.premiumLines.map((line, index) => [
+        `${line.peril}\n${line.included ? 'Termasuk perhitungan' : 'Dikecualikan / tidak dihitung'}`,
+        `${money(line.basis)}\n${line.rate.basis}`,
+        `${formatDecimal(line.rate.value)} ${line.rate.unit === 'percent' ? '%' : '‰'}`,
+        calculated[index] ? money(calculated[index]!) : 'Tidak dihitung; rate tidak membuktikan cover.',
+        line.recordedPremium ? money(line.recordedPremium) : 'Belum tercatat',
+      ]),
+    ]),
+    paragraph(`Total ilustrasi: ${money({ amount: addDecimals(calculated.flatMap(value => value ? [value.amount] : [])), currency: terms.currency })}. ${PREMIUM_ROUNDING}`),
+    paragraph('Ilustrasi dan premi tercatat insurer disimpan terpisah. Rate saja tidak menetapkan cover atau premi yang ditagih. Pajak dan biaya tidak dihitung.'),
+  ];
+}
 
-  const locations = state.locations.map((location) => {
-    if (!location.proposed || !location.confirmation?.confirmed || location.review !== 'matched') {
-      throw new Error(`Konfirmasi lokasi ${location.prior.name} belum lengkap.`);
-    }
-    return { ...location.proposed, confirmation: location.confirmation };
+function wordingContent(items: WordingItem[]): Paragraph[] {
+  return items.flatMap(item => [
+    heading(item.title),
+    paragraph(`Arah perubahan: ${item.direction}\nHasil review: ${item.disposition}\nCatatan: ${item.reviewNote}\nPertanyaan: ${item.question || 'Tidak ada'}`),
+    paragraph('Prior agreed baseline — ' + citation(item.priorSource)), paragraph(item.prior || '(Tidak ada wording historis untuk item ini.)'),
+    paragraph('Outgoing QS — ' + citation(item.outgoingSource)), paragraph(item.outgoing),
+    paragraph('Insurer reply — ' + citation(item.replySource)), paragraph(item.reply || '(Tidak ada wording balasan; lihat bukti dan hasil review.)'),
+  ]);
+}
+
+function sourcesContent(state: RenewalCase, versionIds: string[]): Paragraph[] {
+  return [...new Set(versionIds)].map(id => {
+    const doc = state.documents.find(document => document.id === id);
+    if (!doc) throw new Error('Versi sumber tidak tersedia: ' + id);
+    return paragraph(`${doc.id} · ${doc.documentId} v${doc.version}\n${doc.name} · ${doc.type} · ${doc.insuranceClass}\nProdusen: ${doc.producer}\nPeriode: ${doc.periodStart} s.d. ${doc.periodEnd}\nOpsi: ${doc.optionId ?? 'Historis / referensi'} · status: ${doc.status}`);
   });
-  const total = locations.reduce((sum, location) => sum + location.sumInsured, 0);
-  const latestProposal = state.proposals.at(-1);
-  const rate = `${(state.terms.rateBps / 100).toLocaleString('id-ID', { maximumFractionDigits: 2 })}%`;
+}
 
+function renderDocument(state: RenewalCase, kind: 'QS' | 'DFS', children: (Paragraph | Table)[]): Document {
   return new Document({
-    title: `Draft renewal PAR — ${state.clientName} — revisi ${state.revision}`,
-    subject: 'Prototipe wawancara — seluruh data fiktif',
-    creator: 'PAR renewal prototype',
-    description: 'Draft simulasi yang dapat diedit; bukan polis atau instruksi binding nyata.',
-    styles: {
-      default: { document: { run: { font: 'Calibri', size: 22 }, paragraph: { spacing: { after: 140 } } } },
-    },
-    sections: [{
-      properties: { page: { margin: { top: 1000, bottom: 1000, left: 1000, right: 1000 } } },
-      children: [
-        new Paragraph({ text: 'DRAFT RENEWAL QUOTATION', heading: HeadingLevel.TITLE }),
-        paragraph('PROPERTY ALL RISKS'),
-        paragraph('SIMULASI — SELURUH DATA FIKTIF. Dokumen ini dapat diedit untuk pengujian; bukan polis, bukti pertanggungan, atau instruksi binding nyata.'),
-        paragraph(`Klien: ${state.clientName}\nReferensi kasus: ${state.id}\nRevisi dokumen: ${state.revision}\nProposal terakhir: ${latestProposal ? `v${latestProposal.version}, revisi ${latestProposal.revision}` : 'Belum dikirim'}\nDibuat: ${new Date().toISOString()}`),
-        heading('1. Lokasi dan nilai pertanggungan terkonfirmasi'),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            row(['Lokasi', 'Alamat terkonfirmasi', 'Sum insured'], true),
-            ...locations.map((location) => row([location.name, location.address, currency(location.sumInsured)])),
-            row(['Total sum insured', '', currency(total)], true),
-          ],
-        }),
-        heading('2. Terms renewal'),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            row(['Rincian', 'Kesepakatan revisi ini'], true),
-            row(['Okupasi', state.terms.occupation]),
-            row(['Periode pertanggungan', `${state.terms.periodStart} s.d. ${state.terms.periodEnd}`]),
-            row(['Rate tahunan', rate]),
-            row(['Premi indikatif sebelum pajak dan biaya', currency(Math.round(total * state.terms.rateBps / 10_000))]),
-            row(['Deductible', state.terms.deductible]),
-            row(['Additional coverage', state.terms.additionalCoverage]),
-            row(['Riwayat klaim', state.terms.lossHistory]),
-          ],
-        }),
-        paragraph('Premi di atas merupakan indikasi simulasi: total sum insured × rate. Pajak, biaya, dan perhitungan underwriting nyata tidak termasuk.'),
-        paragraph(`Kesepakatan asuransi: revisi ${state.insurerAgreement?.revision}; ${state.insurerAgreement?.at}. ${state.insurerAgreement?.note ?? ''}`),
-        heading('3. Klausul asli — tetap utuh'),
-        ...state.originalClauses.map(paragraph),
-        heading('4. Amandemen — dicatat terpisah'),
-        ...(state.amendments.length ? state.amendments.flatMap((amendment, index) => [
-          paragraph(`${index + 1}. ${amendment.status === 'accepted' ? 'Diterima' : 'Ditolak'} — diajukan oleh ${roleLabels[amendment.proposedBy]}`),
-          paragraph(amendment.text),
-          paragraph(`Catatan keputusan: ${amendment.note || 'Tidak ada catatan tambahan.'}`),
-        ]) : [paragraph('Tidak ada usulan amandemen.')]),
-        heading('5. Sumber konfirmasi klien'),
-        ...locations.flatMap((location) => [
-          paragraph(`${location.name}\nDikonfirmasi oleh: ${location.confirmation.confirmedBy}\nSumber: ${location.confirmation.source}\nWaktu konfirmasi: ${location.confirmation.at}\nStatus pemeriksaan broker: cocok dengan konfirmasi klien.`),
-        ]),
-        paragraph('Broker memeriksa dan mencocokkan data; broker tidak memberikan approval formal. Persetujuan klien atas proposal dan acknowledgment binding asuransi dicatat terpisah di aplikasi.'),
-      ],
-    }],
+    title: `Rekonvia — ${kind} PAR — ${state.clientName} — revisi ${state.revision}`,
+    subject: 'Pilot manual — seluruh data fiktif', creator: 'Rekonvia',
+    description: 'Draft editable dari snapshot; bukan polis atau bukti pertanggungan.',
+    styles: { default: { document: { run: { font: 'Calibri', size: 22 }, paragraph: { spacing: { after: 140 } } } } },
+    sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1000, right: 1000 } } }, children: [
+      new Paragraph({ text: `Rekonvia · ${kind} PROPERTY ALL RISKS`, heading: HeadingLevel.TITLE }),
+      paragraph('SIMULASI — SELURUH DATA FIKTIF. Draft editable untuk pengujian; bukan polis, bukti pertanggungan, atau instruksi binding nyata.'),
+      paragraph(`Klien: ${state.clientName}\nKasus: ${state.id}\nProdusen: broker\nRevisi dokumen: ${state.revision}\nLock version: ${state.lockVersion}`),
+      ...children,
+    ] }],
   });
 }
 
-export async function createRenewalBlob(state: RenewalCase): Promise<Blob> {
-  return Packer.toBlob(buildRenewalDocument(state));
+/** Direct exports use the same guards as commands and only render current immutable snapshots. */
+export function buildRenewalDocument(state: RenewalCase): Document {
+  if (!isRenewalCase(state)) throw new Error('DFS belum dapat diekspor: data kasus tidak valid.');
+  const blockers = getExportBlockers(state);
+  const dfs = getCurrentDfs(state);
+  if (blockers.length || !dfs) throw new Error(`DFS belum dapat diekspor: ${blockers.map(item => item.label).join('; ') || 'Siapkan snapshot DFS versi terkini.'}`);
+  const proposal = dfs.proposal;
+  const participants = proposal.responses.filter(response => dfs.responseIds.includes(response.id));
+  const agreement = state.agreements.find(item => item.id === dfs.agreementId)!;
+  const instruction = state.instructions.find(item => item.id === dfs.instructionId)!;
+  return renderDocument(state, 'DFS', [
+    paragraph(`Snapshot DFS: ${dfs.id}\nOpsi: ${dfs.optionId}\nProposal: ${proposal.id} v${proposal.version}\nMaterial revision: ${proposal.materialRevision}\nWording version: ${proposal.wordingVersion}\nDisiapkan: ${dfs.at} oleh ${dfs.recordedBy}\nPersetujuan: ${dfs.agreementId}\nInstruksi renewal: ${dfs.instructionId}`),
+    heading('1. Lokasi dan nilai terkonfirmasi klien'),
+    table([['Lokasi', 'Alamat', 'Sum insured'], ...dfs.locations.map(location => [location.values.name, location.values.address, money(location.values.sumInsured)]),
+      ['Total', '', money({ amount: addDecimals(dfs.locations.map(location => location.values.sumInsured.amount)), currency: proposal.terms.currency })]]),
+    heading('2. Terms dan perhitungan'), ...termsContent(proposal.terms),
+    heading('3. Wording tiga arah — kata sumber dipertahankan'), ...wordingContent(proposal.wording),
+    heading('4. Posisi setiap anggota panel'),
+    ...participants.flatMap(response => [
+      paragraph(`${response.insurerName} · ${formatDecimal(response.sharePercent)}%\nPosisi: ${response.position} · leader: ${response.leader ? 'ya' : 'tidak'}\nRespons eksternal: ${response.externalRespondent}, ${response.responseAt}\nDicatat oleh: ${response.recordedBy}, ${response.recordedAt}\nQS: ${response.quoteId} · wording v${response.wordingVersion}\nBukti: ${citation(response.evidence)}`),
+      paragraph(response.evidence.excerpt),
+      ...response.conditions.map(condition => paragraph(`Kondisi ${condition.required ? 'wajib' : 'diungkapkan'}: ${condition.text} · ${condition.resolved ? 'selesai' : 'belum selesai'}`)),
+    ]),
+    heading('5. Bukti konfirmasi klien'),
+    ...dfs.locations.map(location => paragraph(`${location.values.name}\nDikonfirmasi oleh: ${location.confirmation.confirmedBy}\nSumber: ${location.confirmation.source}\nWaktu: ${location.confirmation.at}\nSubmission: ${location.confirmation.submissionId}`)),
+    paragraph(`Persetujuan ${agreement.id}\n${agreement.recordedBy} · ${agreement.at}\n${agreement.evidence}`),
+    paragraph(`Instruksi renewal ${instruction.id}\n${instruction.recordedBy} · ${instruction.at}\n${instruction.evidence}`),
+    paragraph('Broker mencocokkan bukti dan memeriksa dokumen. Persetujuan serta instruksi klien dan acknowledgment setiap insurer dicatat terpisah.'),
+    heading('6. Versi sumber'), ...sourcesContent(state, [...proposal.sourceVersionIds, ...participants.map(response => response.evidence.documentVersionId)]),
+  ]);
 }
+
+export function buildQuoteDocument(state: RenewalCase): Document {
+  if (!isRenewalCase(state)) throw new Error('QS belum dapat diekspor: data kasus tidak valid.');
+  const blockers = getQsBlockers(state);
+  const quote = getCurrentQuote(state);
+  if (blockers.length || !quote) throw new Error(`QS belum dapat diekspor: ${blockers.map(item => item.label).join('; ') || 'Siapkan snapshot QS versi terkini.'}`);
+  return renderDocument(state, 'QS', [
+    paragraph(`Snapshot QS: ${quote.id}\nOpsi: ${quote.optionId}\nMaterial revision: ${quote.materialRevision}\nWording version: ${quote.wordingVersion}\nDisiapkan: ${quote.at} oleh ${quote.recordedBy}`),
+    heading('1. Schedule untuk quotation'),
+    table([['Lokasi', 'Alamat', 'Sum insured', 'Status periode berjalan'], ...quote.locations.map(location => [location.values.name, location.values.address, money(location.values.sumInsured), location.currentConfirmed ? 'Dikonfirmasi klien' : 'Historis / belum dikonfirmasi klien'])]),
+    paragraph('Data historis dapat digunakan untuk QS. Data ini tetap memerlukan konfirmasi klien sebelum DFS.'),
+    heading('2. Terms usulan'), ...termsContent(quote.terms),
+    heading('3. Review wording tiga arah'), ...wordingContent(quote.wording),
+    heading('4. Versi sumber'), ...sourcesContent(state, quote.sourceVersionIds),
+  ]);
+}
+
+export async function createRenewalBlob(state: RenewalCase): Promise<Blob> { return Packer.toBlob(buildRenewalDocument(state)); }
+export async function createQuoteBlob(state: RenewalCase): Promise<Blob> { return Packer.toBlob(buildQuoteDocument(state)); }
 
 function download(blob: Blob, name: string): void {
   let url: string | undefined;
@@ -131,48 +161,34 @@ function download(blob: Blob, name: string): void {
   }
 }
 
-export async function exportRenewalDocx(state: RenewalCase): Promise<void> {
-  const blob = await createRenewalBlob(state);
-  download(blob, filename(state, 'draft-renewal.docx'));
-}
+export async function exportRenewalDocx(state: RenewalCase): Promise<void> { download(await createRenewalBlob(state), filename(state, 'draft-renewal.docx')); }
+export async function exportQuoteDocx(state: RenewalCase): Promise<void> { download(await createQuoteBlob(state), filename(state, 'QS.docx')); }
 
 export function buildSessionSummary(state: RenewalCase): string {
-  const blockers = getExportBlockers(state);
-  const bindingBlockers = getBindingBlockers(state);
-  const proposal = state.proposals.at(-1);
+  const proposal = getActiveProposal(state);
+  const request = getCurrentBindingRequest(state);
+  const sections = [
+    ['Penghambat QS', getQsBlockers(state)], ['Penghambat proposal', getProposalBlockers(state)],
+    ['Penghambat ekspor Word', getExportBlockers(state)], ['Penghambat binding', getBindingBlockers(state)],
+  ] as const;
   return [
-    '# Ringkasan sesi uji renewal PAR',
-    '',
-    'SIMULASI — seluruh data dan komunikasi fiktif. Bukan catatan binding nyata.',
-    '',
-    `- Klien: ${state.clientName}`,
-    `- Kasus: ${state.id}`,
-    `- Revisi saat ini: ${state.revision}`,
-    `- Dibuat: ${new Date().toISOString()}`,
-    `- Periode: ${state.terms.periodStart} s.d. ${state.terms.periodEnd}`,
-    `- Kesepakatan asuransi: ${state.insurerAgreement ? `revisi ${state.insurerAgreement.revision} (${state.insurerAgreement.at})` : 'Belum ada'}`,
-    `- Proposal terakhir: ${proposal ? `v${proposal.version}, revisi ${proposal.revision} (${proposal.sentAt})` : 'Belum dikirim'}`,
-    `- Persetujuan klien: ${state.clientAgreement ? `proposal v${state.clientAgreement.proposalVersion}, revisi ${state.clientAgreement.revision} (${state.clientAgreement.at}); ${state.clientAgreement.evidence}` : 'Belum ada'}`,
-    `- Permintaan binding: ${state.bindingRequest ? `revisi ${state.bindingRequest.revision} (${state.bindingRequest.at})` : 'Belum ada'}`,
-    `- Acknowledgment asuransi: ${state.bindingAcknowledgment ? `${state.bindingAcknowledgment.reference}, revisi ${state.bindingAcknowledgment.revision} (${state.bindingAcknowledgment.at})` : 'Belum ada'}`,
-    `- Status pertanggungan: ${getCoverageStatus(state)}`,
-    '',
-    '## Penghambat ekspor Word',
-    '',
-    ...(blockers.length ? blockers.map((blocker) => `- [${stageLabels[blocker.stage]}] ${blocker.label}`) : ['Tidak ada penghambat pada revisi ini.']),
-    '',
-    '## Penghambat binding',
-    '',
-    ...(bindingBlockers.length ? bindingBlockers.map((blocker) => `- [${stageLabels[blocker.stage]}] ${blocker.label}`) : ['Tidak ada penghambat permintaan binding pada revisi ini.']),
-    '',
-    '## Catatan uji Falih',
-    '',
-    state.notes.trim() || 'Belum ada catatan.',
-    '',
-    '## Aktivitas sesi',
-    '',
-    ...state.activity.map((event) => `- ${event.at} · ${roleLabels[event.role]} · revisi ${event.revision}: ${event.label}`),
-    '',
+    '# Rekonvia — Ringkasan sesi uji renewal PAR', '',
+    'SIMULASI — seluruh data dan komunikasi fiktif. Bukan catatan binding nyata.', '',
+    `- Klien: ${state.clientName}`, `- Kasus: ${state.id}`, `- Revisi saat ini: ${state.revision}`, `- Lock version: ${state.lockVersion}`,
+    `- Opsi aktif: ${state.selectedOptionId}`, `- Dibuat: ${new Date().toISOString()}`, `- Periode: ${state.terms.periodStart} s.d. ${state.terms.periodEnd}`,
+    `- QS: ${getCurrentQuote(state)?.id ?? 'Belum disiapkan'}`,
+    `- Proposal aktif: ${proposal ? `${proposal.id} v${proposal.version}, revisi ${proposal.revision}` : 'Belum dipublikasikan'}`,
+    `- DFS: ${getCurrentDfs(state)?.id ?? 'Belum disiapkan'}`,
+    `- Pengiriman binding: ${request ? `${request.id}; ${request.dispatch.channel}; ${request.dispatch.reference}; ${request.dispatch.sentAt}` : 'Belum dicatat'}`,
+    `- Status pertanggungan: ${getCoverageStatus(state)}`, '',
+    '## Respons insurer eksternal', '',
+    ...getCurrentResponses(state).map(response => `- ${response.insurerName}: ${response.position}, ${response.sharePercent}%; responden ${response.externalRespondent}; dicatat ${response.recordedBy}; ${citation(response.evidence)}`), '',
+    '## Riwayat keputusan klien', '',
+    ...state.agreements.map(item => `- Persetujuan ${item.id}: ${item.proposalId}; revisi ${item.revision}; ${item.recordedBy}; ${item.at}; ${item.evidence}`),
+    ...state.instructions.map(item => `- Instruksi ${item.id}: ${item.proposalId}; revisi ${item.revision}; ${item.recordedBy}; ${item.at}; ${item.evidence}`), '',
+    ...sections.flatMap(([title, blockers]) => [`## ${title}`, '', ...(blockers.length ? blockers.map(blocker => `- [${stageLabels[blocker.stage]}] ${blocker.label}`) : ['Tidak ada penghambat pada revisi ini.']), '']),
+    '## Catatan uji Falih', '', state.notes.trim() || 'Belum ada catatan.', '', '## Aktivitas sesi', '',
+    ...state.activity.map(event => `- ${event.at} · ${roleLabels[event.actor.role]} (${event.actor.id}) · revisi ${event.revision} · lock ${event.lockVersion}: ${event.label}`), '',
   ].join('\n');
 }
 
