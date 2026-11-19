@@ -11,6 +11,9 @@ __pycache__/
 .env.*
 !.env.example
 .vercel/
+supabase/.temp/
+supabase/.branches/
+.supabase/
 
 # Private research and implementation plans stay local.
 /docs/research/

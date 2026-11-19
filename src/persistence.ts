@@ -64,7 +64,7 @@ export function useRenewalCase() {
     }
     try {
       const storage = browserStorage();
-      // shortcut: browser version checks cannot atomically commit across tabs; replace with server commands at the Phase 3 authenticated cutover.
+      // shortcut: this isolated simulation supports one tab; authenticated cases use atomic server commands instead.
       const raw = storage?.getItem(CASE_STORAGE_KEY);
       if (raw) {
         const stored: unknown = JSON.parse(raw);

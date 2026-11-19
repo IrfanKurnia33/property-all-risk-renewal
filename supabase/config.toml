@@ -1,0 +1,32 @@
+﻿project_id = "rekonvia"
+
+[api]
+enabled = true
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+auto_expose_new_tables = false
+
+[db]
+major_version = 17
+
+[db.seed]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "https://property-all-risk-renewal.vercel.app"
+additional_redirect_urls = ["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:4173", "http://localhost:4173"]
+enable_signup = false
+enable_anonymous_sign_ins = false
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"
+
+[functions.renewal-api]
+enabled = true
+# getUser validates every request inside the function; a publishable key is insufficient.
+verify_jwt = false
+entrypoint = "./functions/renewal-api/index.ts"
+import_map = "./functions/renewal-api/deno.json"

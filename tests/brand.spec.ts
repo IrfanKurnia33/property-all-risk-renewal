@@ -7,6 +7,7 @@ test('production brand uses semantic colors, local fonts and the original wordma
   });
   await page.addInitScript(() => localStorage.setItem('ruang-renewal.tour.v1', 'seen'));
   await page.goto('/');
+  await expect(page.locator('h1')).toBeVisible();
   const fonts = await page.evaluate(async () => {
     await document.fonts.ready;
     return {

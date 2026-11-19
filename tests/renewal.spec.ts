@@ -206,6 +206,7 @@ test('incomplete client evidence exposes DFS blockers and comparison data remain
 test('source dialogs and keyboard navigation retain focus without recording decisions', async ({ page }) => {
   await seed(page);
   await page.goto('/');
+  await expect(page.getByRole('link', { name: 'Langsung ke workspace' })).toBeAttached();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Langsung ke workspace' })).toBeFocused();
   await page.keyboard.press('Enter');
