@@ -75,6 +75,15 @@ export function clientView(state: RenewalCase, actorId: string) {
   return {
     caseId:state.id, clientName:state.clientName, lockVersion:state.lockVersion, fictional:state.fictional,
     proposal:proposal ? clientProposal(proposal) : null, proposalCurrent:current,
+    proposalDocumentAvailable:false,
+    currentLocations:proposal?.locations.map(published=>{
+      const location=state.locations.find(l=>l.id===published.id);
+      const own=!!location && isCurrentConfirmation(state,location) && location.confirmation?.confirmedBy===actorId
+        && proposal.optionId===state.selectedOptionId && proposal.terms.periodStart===state.terms.periodStart
+        && proposal.terms.periodEnd===state.terms.periodEnd;
+      return {id:published.id,values:structuredClone(own?location.proposed!:published.values),currentConfirmed:own,
+        ownConfirmation:own?{source:location.confirmation!.source,at:location.confirmation!.at,submissionId:location.confirmation!.submissionId}:null};
+    })??[],
     submissions:state.submissions.filter(s=>s.recordedBy===actorId),
     agreements:state.agreements.filter(s=>s.recordedBy===actorId), instructions:state.instructions.filter(s=>s.recordedBy===actorId),
     bindingComplete:locked, canSubmitLocations, canAgree,

@@ -1,18 +1,19 @@
 # Supabase backend handoff
 
-Updated 19 November 2026. The Phase 3 authenticated slice is implemented: password login, server-backed case selection and commands, real private uploads, focused client proposals and account-change cleanup. The normal Vite build uses Supabase; the previous local simulation is isolated behind an explicit test build flag. The Supabase API is deployed. Publishing this frontend revision to Vercel remains a separate step.
+Updated 20 November 2026. Phases 4–5 implement the authenticated manual workflow and optional broker-only AI source review: case creation/assignment, historical onboarding, private uploads, focused client proposals, three editable Word templates and recorded binding. The normal Vite build uses Supabase; the previous local simulation is isolated behind an explicit test build flag. The Supabase API and migrations are deployed. Publishing this frontend revision to Vercel remains a separate step. Live AI text passed; live image assistance encountered provider errors/rate limiting and remains unverified.
 
 ## Deployed foundation
 
 - Project: `rekonvia-db`, Singapore (`ap-southeast-1`).
 - Repository-local Supabase CLI, linked to the verified project.
-- Versioned migration in `supabase/migrations/` with RLS on every application table.
+- Versioned migrations in `supabase/migrations/` with RLS on every application table. The three Phase 4 migrations add service-only case management, correct the assignment activity expression, and require explicit historical policy dates.
 - Private `renewal-documents` bucket; no direct authenticated upload, download or list policies.
 - Authenticated `renewal-api` Edge Function. Every request except CORS preflight verifies the bearer token through Supabase Auth. Platform JWT verification is disabled deliberately because verification happens inside the function; a publishable key alone is rejected.
 - Canonical case JSON, workspace membership and client assignments. Broker snapshots and explicitly allowlisted client proposals live in separate tables.
 - An atomic service-only command RPC, immutable history, actor/case-scoped idempotency receipts and optimistic version checks.
 - Upload reservation, immutable signed upload paths, server validation, SHA-256 attribution and transactional finalization. Pending uploads cannot satisfy source requirements or be downloaded as evidence.
-- Broker-only QS/DFS Word generation in the hosted Edge runtime. Proposal Word generation belongs to Phase 4.
+- Guarded QS, proposal and DFS Word generation in the hosted Edge runtime. QS/DFS stay broker-private; assigned clients receive only an explicitly published proposal artifact through a separately authorized download route.
+- Broker-private AI batches, steps, attempt counts and human reviews. The Phase 5 migration adds six service-only functions for source validation, idempotency, workspace budgets/leases and review; AI operations never mutate the renewal case.
 
 The pure domain, decimal calculations and Word builders live in `supabase/functions/_shared/`. Browser-facing `src/domain.ts` and `src/decimal.ts` re-export the same implementation; `src/downloads.ts` keeps only browser download and summary behavior. Do not create a second server copy of the rules.
 
@@ -21,11 +22,11 @@ The pure domain, decimal calculations and Word builders live in `supabase/functi
 The four owner-created users and confirmed emails have been verified. Both brokers belong to the same fictional brokerage. Client 1 is assigned only to `PILOT-PAR-2027-001`; Client 2 is assigned only to `PILOT-PAR-2027-002`. The Site URL is correct and public signup remains disabled. No more manual Supabase setup is needed for this slice. No account passwords were read or changed.
 
 1. Run `npm.cmd run dev` locally and sign in with your pilot account. Brokers can open both fictional cases. A client sees no case until its assigned proposal is published; that empty state is expected.
-2. In Vercel, set `VITE_SUPABASE_URL` to **`https://watvbzvpkclcqaogyjtb.supabase.co`**, and set `VITE_SUPABASE_PUBLISHABLE_KEY` to the publishable key from your local configuration. Keep `VITE_DEMO_MODE` absent or false. Never add the PAT, database password or server key.
+2. Vercel frontend Config variables are owner-confirmed as added: `VITE_SUPABASE_URL` must be **`https://watvbzvpkclcqaogyjtb.supabase.co`** and `VITE_SUPABASE_PUBLISHABLE_KEY` the publishable key. Apply them to the intended deployment environment; keep `VITE_DEMO_MODE` absent or false. Never add the PAT, database password or server key.
 3. Deploy the repository changes to Vercel when ready. The existing deployed interface does not change merely because the backend or local files changed. No Git commit, push or Vercel deployment was performed by this implementation.
 4. Try the real pilot accounts in separate browser profiles. Use fictional sources, publish each case's proposal, then sign in as its assigned client. Account recovery remains owner-assisted while SMTP is deferred.
 
-The browser test has already exercised two brokers and two clients using separate temporary QA accounts, including the full current DFS export. The temporary accounts are disabled after testing and are not your owner-created pilot users.
+Browser acceptance exercises two brokers and two clients using separate temporary QA accounts, including new-case preparation, all three Word outputs and recorded binding acknowledgment. The temporary accounts are disabled after testing and are not your owner-created pilot users.
 
 For additional existing Auth users, provision a fictional membership and assignment with:
 
@@ -43,7 +44,7 @@ Do not provision a second client against the default first case unless that shar
 
 The owner creates real pilot accounts. The repository tooling can create membership/assignment records, seed fictional cases, deploy migrations/functions and run backend tests. The temporary QA accounts used during implementation are signed out and banned; they are not your pilot accounts.
 
-No OpenRouter key is needed now. Add it in Phase 5 after authenticated manual workflows and all three export templates pass acceptance.
+The owner-provisioned OPENROUTER_API_KEY Edge Function secret is configured and used only by the authenticated server. No further key setup is required. It must never be added to frontend variables. Read the [AI guide](ai-assistance.md) before testing with fictional sources; free-route availability and model accuracy are separate from technical acceptance.
 
 ## Local credentials and commands
 
@@ -68,12 +69,22 @@ All routes below are relative to `/functions/v1/renewal-api`. Send `apikey: <pub
 | Route | Behavior |
 | --- | --- |
 | `GET /cases` | RLS-filtered broker cases and assigned published client proposals |
+| `GET /case-setup` | Broker-only workspace/client directory; no global Auth directory |
+| `POST /cases` | Atomically create a fictional case from explicit historical periods/schedule and assign existing clients |
 | `GET /cases/:caseId` | Full broker case or separately constructed client-safe view |
+| `GET /cases/:caseId/assignments` | Broker-only same-workspace client accounts and current assignments |
+| `POST /cases/:caseId/assignments` | Versioned, audited assignment update; protects contributing clients and completed binding |
 | `POST /cases/:caseId/commands` | Shared-domain command, atomic save and role checks |
 | `POST /cases/:caseId/uploads/start` | Broker reserves an existing source version and receives an immutable signed upload URL |
 | `POST /cases/:caseId/uploads/:documentId/finalize` | Verify the uploaded bytes; attach the file/hash to canonical state atomically |
 | `POST /cases/:caseId/documents/:documentId/download` | Short-lived link for authorized finalized evidence |
-| `POST /cases/:caseId/exports` | Broker-only guarded QS or DFS export and immutable manifest |
+| `POST /cases/:caseId/exports` | Broker-only guarded QS, proposal or DFS export and immutable manifest |
+| `POST /cases/:caseId/proposals/:proposalId/document` | Broker or assigned client retrieves an existing published proposal artifact; no private manifest |
+| `GET /cases/:caseId/ai` | Broker-private source selections, persisted AI steps, reviews and workspace budget |
+| `GET /cases/:caseId/ai/provider-status` | Broker-only sanitized OpenRouter key/account status, without inference |
+| `POST /cases/:caseId/ai/batches` | Persist selected finalized-source excerpts/pages without calling AI |
+| `POST /cases/:caseId/ai/batches/:batchId/steps/:index` | Execute one pending step under workspace budget/concurrency limits, or return its terminal result |
+| `POST /cases/:caseId/ai/batches/:batchId/steps/:index/review` | Attributed human review/dismissal, separate from canonical renewal facts |
 
 Command envelope:
 
@@ -89,6 +100,12 @@ Command envelope:
 
 Role and actor ID come from Auth and database membership, never request fields or editable user metadata. Client actions are `submitLocations`, `clientAgree` and `clientInstruct`. Insurers remain external parties recorded by brokers.
 
+Case creation accepts exactly `{ workspaceId, caseId, clientName, periodStart, periodEnd, priorPeriodStart, priorPeriodEnd, historicalLocations, clientUserIds, idempotencyKey }`. Each historical location is `{ name, address, sumInsured: { amount: "1000000.25", currency: "IDR" } }`; 1–100 rows are supported. Historical dates must precede renewal. Amounts remain exact decimal strings. New cases start with no documents, wording or approvals; broker-entered history cannot establish current client confirmation. Record source versions, add baseline wording and review it before preparing QS.
+
+Assignment updates accept `{ expectedVersion, idempotencyKey, clientUserIds }`, with at most 20 different existing same-workspace client accounts. A client who has supplied evidence or consent cannot be removed through this flow; owner-assisted access review is required. Binding completion locks assignment changes. Each successful creation/access change has an audit event and retry receipt. Browser callers cannot execute these service-only RPCs directly or administer Auth users.
+
+Published proposal downloads use an empty JSON body and return only `{ url, expiresIn, proposalId }`. A client cannot generate a document or download QS/DFS. Historical published proposal artifacts remain historical after material edits; new exports require current readiness. The client screen labels a stale proposal and prevents using it for new agreement/instruction.
+
 Identical retries return the original result before checking the now-stale save version; changing a request while reusing its key returns 409. A new stale command also returns 409. The UI must retain the unsaved draft, reload current state and let the person review before submitting a new command/key. A replayed original result can be older than the latest case; fetch current state afterward.
 
 File flow:
@@ -99,9 +116,9 @@ File flow:
 4. Finalize with `{ expectedVersion, idempotencyKey, sha256 }`. The UI supplies the selected file's hash; the server independently validates the actual bytes and rejects a mismatch before attachment. The hash is optional for older API callers. On a save conflict, retain the pending upload and review the latest case before retrying with a new version/key.
 5. Only a finalized file can satisfy source requirements for quotations, insurer responses, publication, DFS or binding evidence. Initial simulation metadata does not prove an uploaded file exists.
 
-Reservations expire after two hours and cannot replace finalized bytes. An expired or incompatible reservation requires a new source document version. Signed upload URLs are capabilities; keep them private. Authorized download URLs expire after 60 seconds. Changing a document's client sharing flag through the browser is unavailable; explicit, versioned sharing UX remains to implement.
+Reservations expire after two hours and cannot replace finalized bytes. An expired or incompatible reservation requires a new source document version. Signed upload URLs are capabilities; keep them private. Authorized download URLs expire after 60 seconds. Raw source documents remain broker-private in the current UI. Published proposal Word downloads use a separate explicit publication/assignment check; they never expose the raw broker file or private export manifest.
 
-Exports accept `{ kind: "QS" | "DFS", expectedVersion, idempotencyKey }`. They recheck readiness and verified sources before generation and again at the atomic state commit. A concurrent change prevents publication and the private unfinished object is removed where possible. Successful exports return a signed download link and remain attributed to their original snapshot. Identical successful export retries may retrieve that original artifact even after a later material edit.
+Exports accept `{ kind: "QS" | "proposal" | "DFS", expectedVersion, idempotencyKey }`. QS requires a reviewed current quote; proposal requires a current published proposal and compatible panel; DFS additionally requires current client confirmations, agreement, instruction, matching, checks and resolved required conditions. They recheck readiness and verified sources before generation and again at the atomic state commit. A concurrent change prevents publication and the private unfinished object is removed where possible. Successful exports return a signed download link and remain attributed to their original snapshot. Identical successful export retries may retrieve that original artifact even after a later material edit.
 
 Errors: 401 missing/invalid session; 403 disallowed role/origin; 404 missing or inaccessible case/document; 409 stale save/key reuse; 413 oversized request; 415 wrong request content type; 422 invalid command, file or workflow blocker. Unexpected internal errors expose no database details.
 
@@ -110,15 +127,16 @@ Errors: 401 missing/invalid session; 403 disallowed role/origin; 404 missing or 
 Run local checks:
 
 ```powershell
+npm.cmd run test:e2e:install
 npm.cmd test
 npm.cmd run build
 npm.cmd run test:brand
 npm.cmd run test:e2e
 ```
 
-The final backend regression passed 67 hosted checks. All 59 local tests, 14 isolated-simulation Chromium tests and the full four-account authenticated browser journey passed, together with TypeScript/Deno checks, the production build and brand contract. The authenticated visual sweep covered 48 views at six widths: 4,455 text-contrast checks and 636 control-boundary checks passed with no overflow or browser errors. The migration history is up to date.
+The Phase 4 backend regression passed 89 workflow/export checks and 36 case-management checks. All 66 local tests, 14 isolated-simulation Chromium tests and both authenticated browser journeys passed, together with TypeScript/Deno checks, the production build and brand contract. The migration history is up to date. The expanded visual sweep passed 66 views at six widths, including 6,175 rendered-text and 780 control-boundary contrast checks, without overflow or browser errors. Detailed evidence is recorded in the local implementation plan.
 
-The authenticated browser test covers private uploads, publication, client confirmation, stale client/broker drafts, exact retries after losing a successful response, separate agreement/instruction, matching, final checks and a current hosted DFS download. ZIP/XML inspection verified Unicode, three editable tables and verbatim original wording. Logout/account switching and expired-session cleanup passed. The test launcher now owns preview directly and restores an authenticated production build after simulation tests.
+Authenticated browser tests cover new-case creation from exact historical periods/schedules, assignment add/remove, real baseline authoring/uploads, publication and client-safe proposal downloads, stale client/broker drafts, exact retries after losing a successful response, separate agreement/instruction, matching, final checks and recorded manual binding. All three hosted Word archives were downloaded and inspected; ZIP/XML checks verify Unicode, editable tables, verbatim wording and separate amendments. Logout/account switching and expired-session cleanup passed. The test launcher now owns preview directly and restores an authenticated production build after simulation tests.
 
 ```powershell
 $env:REKONVIA_RUN_HOSTED_BROWSER_TESTS='1'
@@ -130,10 +148,14 @@ The hosted test deliberately creates synthetic cases in isolated QA workspaces a
 ```powershell
 $env:REKONVIA_RUN_HOSTED_TESTS='1'
 node scripts/test-supabase.mjs
+node scripts/test-case-management.mjs
+node scripts/verify-supabase.mjs
 ```
 
 It disables the QA accounts in `finally`. Immutable fictional cases, evidence and audit records are retained for traceability, with case IDs beginning `QA-`. This is a stateful integration test, not a production health check; do not schedule it on every page load or deployment.
 
 File checks support PDF, DOCX, XLSX, JPEG, PNG and WebP up to 10 MiB. Office archives have entry-count, individual expanded-size and total expanded-size limits, actual streaming decompression limits, path checks, main-part checks and rejection of encryption/macros. Image checks establish signatures, not full decoding or sanitization. File inspection is not malware scanning or a full PDF/OOXML validator. Keep this phase restricted to fictional pilot documents.
 
-Remaining work includes explicit sharing commands, abandoned-upload/export cleanup, source extraction/segment population, complete three-template exports and production recovery/SMTP. Authentication, server persistence, upload UI and browser acceptance are implemented. AI run storage is deferred until Phase 5; no AI execution or API key has been added.
+Phase 5 adds four RLS-protected AI tables and six service-only functions through `20261119200000_ai_assistance.sql`, with source-segment provenance distinguishing browser inputs from manual citations. The authenticated `renewal-api` uses the owner-provisioned `OPENROUTER_API_KEY` Edge Function secret. The [AI guide](ai-assistance.md) documents local preparation, exact request bounds, free-only/private routing, resume semantics and verification. AI results/reviews never update canonical renewal state. Post-deployment hardening checks verify all 17 public tables have RLS, service-only command/setup/AI functions, private Storage and disabled signup.
+
+Raw-source sharing beyond published proposals, abandoned-upload/export cleanup and production recovery/SMTP remain deferred. The manual lifecycle, all three Word templates and optional AI assistance are implemented. Researcher-led usability testing and desktop Microsoft Word rendering remain unperformed.

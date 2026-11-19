@@ -6,11 +6,11 @@ The current lifecycle follows [renewal flow v2](docs/research/renewal-flow-v2/re
 
 ## Current implementation
 
-The normal app uses Supabase password login, database-derived roles and case assignments, private file uploads, authenticated server commands and guarded QS/DFS Word downloads. Canonical case state is stored in Postgres. Clients receive an allowlisted proposal view, not the full broker case. Server transactions reject stale saves and deduplicate identical retries. The [Supabase handoff](docs/supabase-backend.md) explains provisioning, routes, access rules and deployment.
+The normal app uses Supabase password login, database-derived roles and case assignments, broker case creation, private file uploads, authenticated server commands and guarded QS, proposal and DFS Word downloads. Canonical case state is stored in Postgres. Clients receive an allowlisted proposal view, not the full broker case. Server transactions reject stale saves and deduplicate identical retries. The [Supabase handoff](docs/supabase-backend.md) explains provisioning, routes, access rules and deployment.
 
 Source inventory and three-way wording review preserve the prior agreed baseline, outgoing QS and insurer reply. Separate quotation options, individual insurer participation, exact decimal premium calculations, immutable snapshots and stage-specific readiness remain shared between browser and server.
 
-The full three-template export set and broader workflow refinement belong to Phase 4. OpenRouter belongs to Phase 5, after the authenticated manual workflow and exports pass acceptance. No AI requests or AI API key have been added. Store a future OpenRouter key only in authenticated server-side Edge Function secrets, never in a VITE variable.
+The manual five-stage workflow and all three editable Word templates are implemented. Optional broker-only AI source review prepares selected text/page images locally, calls the server-controlled free OpenRouter route and stores suggestions separately for human review. The [AI guide](docs/ai-assistance.md) covers preparation, limits, failures and source handling. Store OPENROUTER_API_KEY only in Supabase Edge Function Secrets, never in a VITE variable.
 
 ## Run locally
 
@@ -27,6 +27,7 @@ The separate ignored `.env.supabase.local` is for repository-side deployment/adm
 
 ```powershell
 npm run typecheck
+npm run test:e2e:install
 npm test
 npm run build
 npm run test:brand
@@ -37,17 +38,17 @@ If PowerShell blocks `npm.ps1`, use `npm.cmd`. The existing Vite React and Tailw
 
 ## Use the authenticated pilot
 
-1. Sign in with an owner-provisioned broker account and select an assigned brokerage case. A broker sees all cases in that brokerage; clients see only their assigned published proposals.
+1. Sign in with an owner-provisioned broker account and open an existing case or **Buat kasus renewal fiktif**. Enter historical and renewal periods, one row per historical location, and the existing client accounts to assign. Historical data is broker transcription, not current client confirmation. New cases have empty source/wording inventories and clearly marked initial terms to replace. A broker sees all cases in that brokerage; clients see only their assigned published proposals. **Akses klien pada kasus** in Bahan renewal manages existing-client assignments; clients who have contributed evidence/decisions require owner review before removal, and completed binding locks access changes.
 2. In **Bahan renewal**, inspect source class, period, producer, option and immutable version. Upload fictional PDF, DOCX, XLSX, JPEG, PNG or WebP files, up to 10 MiB each, then finalize them. Format/hash validation does not prove a manually entered quotation matches the source. Check the actual words yourself.
-3. Review the prior agreed, outgoing QS and insurer reply wording. Preserve original text and record the disposition, reason and unresolved questions. Upload referenced files before release. A rejected enhancement and withdrawal of an agreed clause remain distinct.
+3. For an empty case, add the baseline clause with **Tambah klausul dari baseline disepakati**, selecting the prior source and outgoing QS source. Add enhancements separately. Review the prior agreed, outgoing QS and insurer reply wording. Preserve original text and record the disposition, reason and unresolved questions. Upload referenced files before release. A rejected enhancement and withdrawal of an agreed clause remain distinct.
 4. Inspect exact decimal rates, percent/per-mille units, inclusion, sum-insured basis and recorded premiums. Prepare a reviewed QS snapshot; historical values can be quoted before current-period client confirmation.
 5. In **Review asuransi**, record an external insurer response with respondent, time, exact QS/option/wording, share, terms, conditions and uploaded evidence. Compatible participation must total 100% for the pilot proposal; alternative 100% offers remain separate.
-6. Publish the selected proposal. The assigned client can then sign in, confirm every current-period location/address/sum insured, and supply its confirmation source. Unchanged historical values still require client confirmation. The broker cannot confirm for the client.
+6. Publish the selected proposal and use **Unduh proposal Word** to prepare its immutable, client-safe document. Assigned clients can download that published version after broker generation. QS and DFS stay broker-private. The assigned client can then sign in, confirm every current-period location/address/sum insured, and supply its confirmation source. Unchanged historical values still require client confirmation. The broker cannot confirm for the client.
 7. The broker matches the client evidence in **Rekonsiliasi data** without granting formal approval. Material changes require updated quotation/insurer evidence and proposal publication. The client can clarify incomplete data against the active option and unchanged policy period while an update is pending.
 8. The client separately agrees to the current proposal and gives renewal instruction. The broker resolves required conditions, completes the final checklist, prepares the DFS and downloads the guarded Word document. Uploaded sources, decisions, versions and exact wording remain attributed.
 9. Record manual binding dispatch and each participating insurer's external acknowledgment. A leader response covers only that member. The app records these communications; it does not send emails or establish real insurance coverage.
 
-Keep pilot data fictional. Account creation and recovery are owner-assisted while SMTP is deferred; test email addresses are not delivery destinations.
+Keep pilot data fictional. Word files are editable drafts; external edits become new uploaded source versions and require review. They do not update a snapshot or clear readiness checks. Original Word layout preservation is not promised. Account creation and recovery are owner-assisted while SMTP is deferred; test email addresses are not delivery destinations.
 
 ## Saves, drafts and recovery
 
@@ -79,7 +80,7 @@ $env:REKONVIA_RUN_HOSTED_BROWSER_TESTS='1'
 npm run test:e2e:auth
 ```
 
-This creates four temporary QA users and isolated fictional cases, uses separate browser sessions, tests private uploads and stale drafts, then downloads a current DFS from the deployed function. Accounts are disabled during cleanup; immutable synthetic QA history is retained. It does not use or change the owner-created pilot users' passwords. Do not run this as a routine production health check.
+Each hosted scenario creates four temporary QA users and isolated fictional cases. The journeys cover historical onboarding, assignments, uploaded baseline/QS sources, all three Word outputs, published-proposal privacy, client consent, stale drafts and manual binding acknowledgment. AI acceptance uses real local document preparation with deterministic provider success/failure fixtures; live inference has a separate opt-in check in the AI guide. Accounts are disabled during cleanup; immutable synthetic QA history is retained. It does not use or change the owner-created pilot users' passwords. Do not run this as a routine production health check.
 
 ## Design system
 
@@ -94,12 +95,12 @@ Use Vite, Node.js 24, `npm run build`, and output directory `dist`. Before deplo
 - `VITE_SUPABASE_URL`: the project base URL, without `/rest/v1/`.
 - `VITE_SUPABASE_PUBLISHABLE_KEY`: the publishable key.
 
-Keep `VITE_DEMO_MODE` absent or false. Never add the database password, PAT, service-role/secret key or future OpenRouter secret to frontend variables. The production origin must match Supabase Auth URL settings and the Edge Function's explicit CORS origin list. Preview URLs need an explicit allowed origin before they can call the API.
+Keep `VITE_DEMO_MODE` absent or false. Never add the database password, PAT, service-role/secret key or OpenRouter secret to frontend variables. The production origin must match Supabase Auth URL settings and the Edge Function's explicit CORS origin list. Preview URLs need an explicit allowed origin before they can call the API.
 
 Deployment does not apply Supabase migrations/functions automatically from a Vercel build; follow the separate reviewed commands in [the backend guide](docs/supabase-backend.md). A repository commit/push and frontend deployment are owner-controlled steps unless explicitly requested.
 
 ## Boundaries
 
-This is a fictional PAR renewal pilot for one brokerage. Full proposal Word templates, explicit document-sharing commands, extraction/AI, scheduled abandoned-upload cleanup, production recovery/SMTP, invoicing, policy administration and endorsements remain outside the current implementation. File inspection is bounded format validation, not malware scanning. Word exports are editable QS/DFS drafts, not a promise of arbitrary source layout preservation or policy issuance.
+This is a fictional PAR renewal pilot for one brokerage. Raw-source sharing beyond published proposals, scheduled abandoned-upload cleanup, production recovery/SMTP, invoicing, policy administration and endorsements remain outside the current implementation. AI suggestions require original-source review and cannot establish acceptance, confirmation or readiness. File inspection is bounded format validation, not malware scanning. QS, proposal and DFS Word exports are editable drafts, not a promise of arbitrary source layout preservation or policy issuance. Researcher-led usability/value testing remains separate from technical acceptance.
 
 Git excludes local research/plans, credentials, CLI linkage state, caches, installed skill packages, dependencies, build outputs and test artifacts. Keep those exclusions when publishing. Skill provenance and repository adaptations remain in `.agents/skills/README.md` and `sources.lock.json`.

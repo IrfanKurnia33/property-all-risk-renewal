@@ -567,7 +567,7 @@ export function isRenewalCase(value: unknown): value is RenewalCase {
     if (new Set(state.termsRevisions.map(t => t.optionId + ':' + t.revision)).size !== state.termsRevisions.length
       || !state.options.every(o => equal(state.termsRevisions.findLast(t => t.optionId === o.id)?.terms, o.terms))) return false
     if (!state.wordingRevisions.every(w => rec(w) && state.options.some(o => o.id === w.optionId) && integer(w.version) && w.version > 0 && revision(w.revision) && stamp(w.at) && filled(w.recordedBy)
-      && list(w.items) && w.items.length > 0 && unique(w.items) && w.items.every(i => validWording(i, state, w.optionId, false)))) return false
+      && list(w.items) && unique(w.items) && w.items.every(i => validWording(i, state, w.optionId, false)))) return false
     if (new Set(state.wordingRevisions.map(w => w.optionId + ':' + w.version)).size !== state.wordingRevisions.length || !state.options.every(o => state.wordingRevisions.some(w => w.optionId === o.id && w.version === o.wordingVersion))) return false
     if (!state.locations.every(l => validValues(l.prior) && l.prior.sumInsured.currency === state.terms.currency
       && (l.proposed === null || validValues(l.proposed) && l.proposed.sumInsured.currency === state.terms.currency)

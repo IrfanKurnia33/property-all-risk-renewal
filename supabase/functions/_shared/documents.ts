@@ -1,9 +1,10 @@
 import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from 'docx';
 import {
-  getCurrentDfs,
-  getCurrentQuote, getExportBlockers, getQsBlockers, isRenewalCase,
+  getActiveProposal, getCurrentDfs,
+  getCurrentQuote, getExportBlockers, getProposalBlockers, getQsBlockers, isRenewalCase,
 } from './domain.ts';
 import type { RenewalCase, SourceReference, Terms, WordingItem } from './domain.ts';
+import { clientProposal } from './api-contract.ts';
 import { addDecimals, calculatePremium, formatDecimal, PREMIUM_ROUNDING } from './decimal.ts';
 import type { Money } from './decimal.ts';
 
@@ -45,25 +46,36 @@ function termsContent(terms: Terms): (Paragraph | Table)[] {
   ];
 }
 
-function wordingContent(items: WordingItem[]): Paragraph[] {
-  return items.flatMap(item => [
+const directionLabels: Record<WordingItem['direction'], string> = {
+  retained: 'Dipertahankan', enhancement: 'Enhancement baru', withdrawal: 'Penarikan wording lama', change: 'Perubahan',
+};
+const dispositionLabels: Record<WordingItem['disposition'], string> = {
+  unreviewed: 'Belum ditinjau', retain: 'Pertahankan wording', accepted: 'Wording QS diterima',
+  'rejected-enhancement': 'Enhancement ditolak', 'withdrawal-accepted': 'Penarikan wording lama dicatat', followup: 'Perlu klarifikasi',
+};
+
+function wordingContent(items: WordingItem[]): (Paragraph | Table)[] {
+  return [paragraph('Teks setiap versi di bawah disalin utuh dari snapshot. Amandemen dan keputusan review dicatat terpisah; catatan review tidak mengganti teks sumber.'), ...items.flatMap(item => [
     heading(item.title),
-    paragraph(`Arah perubahan: ${item.direction}\nHasil review: ${item.disposition}\nCatatan: ${item.reviewNote}\nPertanyaan: ${item.question || 'Tidak ada'}`),
     paragraph('Prior agreed baseline — ' + citation(item.priorSource)), paragraph(item.prior || '(Tidak ada wording historis untuk item ini.)'),
     paragraph('Outgoing QS — ' + citation(item.outgoingSource)), paragraph(item.outgoing),
     paragraph('Insurer reply — ' + citation(item.replySource)), paragraph(item.reply || '(Tidak ada wording balasan; lihat bukti dan hasil review.)'),
-  ]);
+  ]), heading('Register amandemen — terpisah dari wording asli'),
+  table([['Item', 'Arah perubahan', 'Hasil review', 'Catatan dan pertanyaan'], ...items.map(item => [
+    item.title, `${directionLabels[item.direction]} (${item.direction})`, `${dispositionLabels[item.disposition]} (${item.disposition})`,
+    `Catatan: ${item.reviewNote}\nPertanyaan: ${item.question || 'Tidak ada'}`,
+  ])])];
 }
 
 function sourcesContent(state: RenewalCase, versionIds: string[]): Paragraph[] {
   return [...new Set(versionIds)].map(id => {
     const doc = state.documents.find(document => document.id === id);
     if (!doc) throw new Error('Versi sumber tidak tersedia: ' + id);
-    return paragraph(`${doc.id} · ${doc.documentId} v${doc.version}\n${doc.name} · ${doc.type} · ${doc.insuranceClass}\nProdusen: ${doc.producer}\nPeriode: ${doc.periodStart} s.d. ${doc.periodEnd}\nOpsi: ${doc.optionId ?? 'Historis / referensi'} · status: ${doc.status}`);
+    return paragraph(`${doc.id} · ${doc.documentId} v${doc.version}\n${doc.name} · ${doc.type} · ${doc.insuranceClass}\nProdusen: ${doc.producer}\nPeriode: ${doc.periodStart} s.d. ${doc.periodEnd}\nOpsi: ${doc.optionId ?? 'Historis / referensi'} · status: ${doc.status}\n${doc.file ? `SHA-256: ${doc.file.sha256}` : 'Belum ada berkas tersimpan; metadata simulasi saja.'}`);
   });
 }
 
-function renderDocument(state: RenewalCase, kind: 'QS' | 'DFS', children: (Paragraph | Table)[]): Document {
+function renderDocument(state: RenewalCase, kind: 'QS' | 'PROPOSAL' | 'DFS', children: (Paragraph | Table)[]): Document {
   return new Document({
     title: `Rekonvia — ${kind} PAR — ${state.clientName} — revisi ${state.revision}`,
     subject: 'Pilot manual — seluruh data fiktif', creator: 'Rekonvia',
@@ -74,8 +86,45 @@ function renderDocument(state: RenewalCase, kind: 'QS' | 'DFS', children: (Parag
       paragraph('SIMULASI — SELURUH DATA FIKTIF. Draft editable untuk pengujian; bukan polis, bukti pertanggungan, atau instruksi binding nyata.'),
       paragraph(`Klien: ${state.clientName}\nKasus: ${state.id}\nProdusen: broker\nRevisi dokumen: ${state.revision}\nLock version: ${state.lockVersion}`),
       ...children,
+      heading('Penggunaan dokumen editable'),
+      paragraph('Dokumen ini dihasilkan dari snapshot tersimpan. Perubahan di Word tidak mengubah snapshot atau status kesiapan Rekonvia. Unggah dokumen hasil edit sebagai versi sumber baru untuk ditinjau kembali.'),
     ] }],
   });
+}
+
+export function buildProposalDocument(state: RenewalCase): Document {
+  if (!isRenewalCase(state)) throw new Error('Proposal belum dapat diekspor: data kasus tidak valid.');
+  const blockers = getProposalBlockers(state);
+  const snapshot = getActiveProposal(state);
+  if (blockers.length || !snapshot || snapshot.optionId !== state.selectedOptionId || snapshot.revision !== state.revision) {
+    throw new Error(`Proposal belum dapat diekspor: ${blockers.map(item => item.label).join('; ') || 'Publikasikan snapshot proposal versi terkini.'}`);
+  }
+  // Use the same public allowlist as the client API; broker evidence never enters the shared proposal Word file.
+  const proposal = clientProposal(snapshot);
+  return renderDocument(state, 'PROPOSAL', [
+    paragraph(`Snapshot proposal: ${proposal.id} v${proposal.version}\nOpsi: ${proposal.optionId}\nMaterial revision: ${snapshot.materialRevision}\nWording version: ${snapshot.wordingVersion}\nDipublikasikan: ${proposal.publishedAt}`),
+    paragraph('Proposal yang telah dipublikasikan untuk review klien. Persetujuan proposal dan instruksi renewal merupakan dua langkah terpisah. Dokumen ini tidak membuktikan instruksi klien atau acknowledgment insurer.'),
+    heading('1. Schedule pada proposal yang dipublikasikan'),
+    table([['Lokasi', 'Alamat', 'Sum insured', 'Status pada snapshot'], ...proposal.locations.map(location => [
+      location.values.name, location.values.address, money(location.values.sumInsured),
+      location.currentConfirmed ? 'Dikonfirmasi klien pada snapshot' : 'Menunggu konfirmasi periode berjalan',
+    ])]),
+    paragraph('Status konfirmasi di atas berlaku pada snapshot proposal ini. Klien tetap memeriksa nama, alamat, dan nilai untuk periode berjalan di Rekonvia.'),
+    heading('2. Terms dan perhitungan'), ...termsContent(proposal.terms),
+    heading('3. Wording yang dipublikasikan — teks dipertahankan'),
+    ...proposal.wording.flatMap(item => [heading(item.title), paragraph(item.wording || '(Tidak ada wording efektif untuk item ini; lihat register amandemen.)')]),
+    heading('4. Register amandemen — terpisah dari wording'),
+    table([['Item', 'Arah perubahan', 'Hasil review'], ...proposal.wording.map(item => [item.title, directionLabels[item.direction], dispositionLabels[item.disposition]])]),
+    paragraph('Register ini menjelaskan hasil review yang dipublikasikan. Penolakan enhancement dan penarikan wording lama dicatat sebagai keputusan yang berbeda.'),
+    heading('5. Panel dan kondisi yang diungkapkan'),
+    ...proposal.participants.flatMap(participant => [
+      paragraph(`${participant.insurerName} · ${formatDecimal(participant.sharePercent)}% · leader: ${participant.leader ? 'ya' : 'tidak'}`),
+      ...participant.conditions.map(condition => paragraph(`Kondisi ${condition.required ? 'wajib' : 'diungkapkan'}: ${condition.text} · ${condition.resolved ? 'selesai' : 'belum selesai'}`)),
+    ]),
+    heading('6. Versi sumber publikasi'),
+    paragraph(`Proposal: ${proposal.id} v${proposal.version}\nRevisi kasus pada publikasi: ${proposal.revision}\nVersi material: ${snapshot.materialRevision}\nVersi wording: ${snapshot.wordingVersion}`),
+    paragraph('Dokumen mengikuti snapshot publikasi di atas. Kutipan bukti dan catatan kerja broker tetap berada dalam catatan privat broker.'),
+  ]);
 }
 
 /** Direct exports use the same guards as commands and only render current immutable snapshots. */
@@ -128,4 +177,5 @@ export function buildQuoteDocument(state: RenewalCase): Document {
 
 export async function createRenewalBlob(state: RenewalCase): Promise<Blob> { return Packer.toBlob(buildRenewalDocument(state)); }
 export async function createQuoteBlob(state: RenewalCase): Promise<Blob> { return Packer.toBlob(buildQuoteDocument(state)); }
+export async function createProposalBlob(state: RenewalCase): Promise<Blob> { return Packer.toBlob(buildProposalDocument(state)); }
 

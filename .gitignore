@@ -41,3 +41,7 @@ scripts/walkthrough/record.mjs
 scripts/walkthrough/requirements.txt
 scripts/walkthrough/scenes.json
 scripts/walkthrough/test_produce.py
+scripts/walkthrough/record-v2.mjs
+scripts/walkthrough/produce-v2.py
+scripts/walkthrough/scenes-v2.json
+scripts/walkthrough/test_produce_v2.py

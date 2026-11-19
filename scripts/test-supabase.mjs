@@ -51,6 +51,7 @@ try{
   let state=(await api(brokerA,`cases/${caseA}`)).state;
   const rpc=await brokerA.client.rpc('commit_case_command',{p_case_id:caseA,p_actor:brokerA.id,p_expected_version:state.lockVersion,p_idempotency_key:randomUUID(),
     p_request:{},p_next_state:state,p_client_proposal:null,p_artifact:null});assert.equal(rpc.error?.code,'42501');assertions++;
+  for(const kind of ['QS','proposal','DFS',['QS']])await api(brokerA,`cases/${caseA}/exports`,'POST',{kind,expectedVersion:state.lockVersion,idempotencyKey:randomUUID()},422);
   const first=await command(brokerA,state,'saveNotes',{notes:'PRIVATE-BROKER-'+run});
   state=first.result.state;
   await api(brokerA,`cases/${caseA}/exports`,'POST',{kind:'QS',expectedVersion:first.envelope.expectedVersion,idempotencyKey:first.envelope.idempotencyKey},409);
@@ -89,6 +90,19 @@ try{
     terms:state.terms,conditions:[],evidence:{documentVersionId:replyId,locator:'Synthetic PDF page 1',excerpt:'Fictional response',shareable:false},note:'PRIVATE-INSURER-'+run}})).result.state;
   state=(await command(brokerA,state,'publishProposal')).result.state;
   const publishedId=getActiveProposal(state).id;
+  await api(clientA,`cases/${caseA}/proposals/${publishedId}/document`,'POST',{},404);
+  await api(clientA,`cases/${caseA}/exports`,'POST',{kind:'proposal',expectedVersion:state.lockVersion,idempotencyKey:randomUUID()},403);
+  const proposalInput={kind:'proposal',expectedVersion:state.lockVersion,idempotencyKey:randomUUID()};
+  const proposalExport=await api(brokerA,`cases/${caseA}/exports`,'POST',proposalInput);state=proposalExport.state;
+  assert.equal(proposalExport.artifact.manifest.snapshotId,publishedId);assert.equal(proposalExport.artifact.manifest.optionId,state.selectedOptionId);assertions+=2;
+  const publicProposal=await api(clientA,`cases/${caseA}/proposals/${publishedId}/document`,'POST',{});
+  assert.deepEqual(Object.keys(publicProposal).sort(),['expiresIn','proposalId','url']);assertions++;
+  const proposalBytes=await fetch(publicProposal.url);assert.equal(proposalBytes.status,200);assertions++;
+  const proposalXml=new TextDecoder().decode(unzipSync(new Uint8Array(await proposalBytes.arrayBuffer()))['word/document.xml']);
+  assert.ok(proposalXml.includes(state.id));assert.ok(proposalXml.includes('PROPOSAL'));assert.doesNotMatch(proposalXml,/PRIVATE-|externalRespondent|sourceVersionIds/);assertions+=3;
+  const proposalRetry=await api(brokerA,`cases/${caseA}/exports`,'POST',proposalInput);assert.equal(proposalRetry.artifact.id,proposalExport.artifact.id);assertions++;
+  await api(clientB,`cases/${caseA}/proposals/${publishedId}/document`,'POST',{},404);
+  await api(clientA,`cases/${caseA}/proposals/nonexistent/document`,'POST',{},404);
   let client=await api(clientA,`cases/${caseA}`);
   assert.doesNotMatch(JSON.stringify(client),/PRIVATE-|outgoingSource|replySource|externalRespondent|sourceVersionIds/);assertions++;
   const safe=await clientA.client.from('published_client_proposals').select('*');check(safe.error);assert.equal(safe.data.length,1);assertions++;
@@ -103,6 +117,8 @@ try{
   state=(await api(brokerA,`cases/${caseA}`)).state;
   state=(await command(brokerA,state,'reviseTerms',{terms:{...state.terms,deductible:state.terms.deductible+' (fictional revision)'},note:'Synthetic material edit after successful export.'})).result.state;
   const oldExport=await api(brokerA,`cases/${caseA}/exports`,'POST',exportInput);assert.equal(oldExport.state.lockVersion,exported.state.lockVersion);assertions++;
+  await api(brokerA,`cases/${caseA}/exports`,'POST',{kind:'proposal',expectedVersion:state.lockVersion,idempotencyKey:randomUUID()},422);
+  const oldProposal=await api(brokerA,`cases/${caseA}/exports`,'POST',proposalInput);assert.equal(oldProposal.artifact.id,proposalExport.artifact.id);assertions++;
   const anon=createClient(url,publicKey,{auth:{persistSession:false}});
   const publicObject=await anon.storage.from('renewal-documents').download((await admin.from('document_versions').select('object_path').eq('id',documentIds[0]).single()).data.object_path);
   assert.ok(publicObject.error);assertions++;

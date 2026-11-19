@@ -15,7 +15,7 @@ process.env.VITE_DEMO_MODE=authenticated?'false':'true';
 let exitCode=await run([npm,'run','build']);
 if(!exitCode){
   const server=await preview({preview:{host:'127.0.0.1',port:4173,strictPort:true}});
-  try{exitCode=await run([resolve('scripts/playwright.mjs'),'test',...(authenticated?['tests/authenticated.spec.ts']:['tests/brand.spec.ts','tests/renewal.spec.ts']),'--reporter=list']);}
+  try{exitCode=await run([resolve('scripts/playwright.mjs'),'test',...(authenticated?['tests/authenticated.spec.ts','tests/phase4.spec.ts','tests/phase5.spec.ts']:['tests/brand.spec.ts','tests/renewal.spec.ts']),'--reporter=list']);}
   finally{await server.close();}
 }
 if(original===undefined)delete process.env.VITE_DEMO_MODE;else process.env.VITE_DEMO_MODE=original;

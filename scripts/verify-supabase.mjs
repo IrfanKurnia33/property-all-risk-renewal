@@ -9,12 +9,23 @@ select
   has_function_privilege('anon','public.commit_case_command(text,uuid,bigint,uuid,jsonb,jsonb,jsonb,jsonb)','EXECUTE') as anon_commit,
   has_function_privilege('authenticated','public.commit_case_command(text,uuid,bigint,uuid,jsonb,jsonb,jsonb,jsonb)','EXECUTE') as authenticated_commit,
   has_function_privilege('service_role','public.commit_case_command(text,uuid,bigint,uuid,jsonb,jsonb,jsonb,jsonb)','EXECUTE') as service_commit,
+  (select jsonb_agg(jsonb_build_object('signature',signature,
+    'anon',has_function_privilege('anon',signature,'EXECUTE'),
+    'authenticated',has_function_privilege('authenticated',signature,'EXECUTE'),
+    'service',has_function_privilege('service_role',signature,'EXECUTE')) order by signature)
+    from unnest(array['public.broker_case_setup(uuid)','public.broker_case_assignments(text,uuid)',
+      'public.create_renewal_case(uuid,jsonb,jsonb)','public.set_case_assignments(text,uuid,bigint,uuid,uuid[],jsonb)',
+      'public.create_ai_batch(text,uuid,jsonb)','public.ai_workspace_budget(uuid)',
+      'public.reserve_ai_step(text,uuid,uuid,integer,uuid,text)','public.refresh_ai_leases(text,uuid)',
+      'public.finish_ai_step(text,uuid,uuid,integer,uuid,jsonb,text)','public.review_ai_step(text,uuid,uuid,integer,jsonb)']) signature) as service_rpcs,
   (select count(*) from pg_policies where schemaname='storage' and tablename='objects')::int as storage_policies
 `}),signal:AbortSignal.timeout(15000)});
 if(!response.ok)throw new Error('Database verification failed (HTTP '+response.status+').');
 const [checks]=await response.json();
-assert.equal(checks.public_tables,13);assert.equal(checks.rls_tables,13);
+assert.equal(checks.public_tables,17);assert.equal(checks.rls_tables,17);
 assert.equal(checks.anon_commit,false);assert.equal(checks.authenticated_commit,false);assert.equal(checks.service_commit,true);
+assert.equal(checks.service_rpcs.length,10);
+for(const rpc of checks.service_rpcs){assert.equal(rpc.anon,false,rpc.signature);assert.equal(rpc.authenticated,false,rpc.signature);assert.equal(rpc.service,true,rpc.signature);}
 assert.equal(checks.storage_policies,0,'Review existing Storage policies before claiming isolation.');
 const {data,error}=await admin.storage.getBucket('renewal-documents');
 if(error)throw new Error('Storage verification failed.');

@@ -32,7 +32,7 @@ test('ambiguous network failures can replay the same envelope without generating
   assert.deepEqual(await apiRequest(options),{saved:true});assert.equal(bodies[0],bodies[1]);
 });
 test('stale saves and expired sessions retain their status and safe recovery messages',async()=>{
-  for(const [status,code] of [[409,'VERSION_CONFLICT'],[401,'INVALID_SESSION'],[503,'INTERNAL_ERROR']] as const){
+  for(const [status,code] of [[409,'VERSION_CONFLICT'],[401,'INVALID_SESSION'],[503,'INTERNAL_ERROR'],[422,'INVALID_PERIOD']] as const){
     const fetcher=(async()=>new Response(JSON.stringify({error:{code,message:'unsafe backend detail'}}),{status})) as typeof fetch;
     await assert.rejects(apiRequest({url:'https://example.supabase.co',publishableKey:'test',token:'test',path:'cases',fetcher}),
       (error:unknown)=>error instanceof RequestError && error.status===status && error.code===code && !error.message.includes('unsafe backend'));

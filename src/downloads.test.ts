@@ -7,8 +7,8 @@ import {
 } from './domain.ts';
 import type { CaseAction, CheckKey, RenewalCase, Role } from './domain.ts';
 import {
-  buildQuoteDocument, buildRenewalDocument, buildSessionSummary, createQuoteBlob, createRenewalBlob,
-  exportQuoteDocx, exportRenewalDocx, exportSessionSummary,
+  buildQuoteDocument, buildRenewalDocument, buildProposalDocument, buildSessionSummary, createQuoteBlob, createRenewalBlob, createProposalBlob,
+  exportQuoteDocx, exportRenewalDocx, exportProposalDocx, exportSessionSummary,
 } from './downloads.ts';
 
 const timestamp = '2026-11-19T04:00:00.000Z';
@@ -70,11 +70,59 @@ test('direct Word helpers reject unresolved cases and require prepared snapshots
   const state = createInitialCase();
   assert.throws(() => buildRenewalDocument(state), /DFS belum dapat diekspor/);
   assert.throws(() => buildQuoteDocument(state), /QS belum dapat diekspor/);
+  assert.throws(() => buildProposalDocument(state), /Proposal belum dapat diekspor/);
   await assert.rejects(createRenewalBlob(state), /belum dapat diekspor/);
   await assert.rejects(exportRenewalDocx(state), /belum dapat diekspor/);
   await assert.rejects(exportQuoteDocx(state), /belum dapat diekspor/);
+  await assert.rejects(exportProposalDocx(state), /belum dapat diekspor/);
   assert.throws(() => buildQuoteDocument(reviewedCase()), /snapshot QS/);
   assert.throws(() => buildRenewalDocument(readyCase(false, false)), /snapshot DFS/);
+  assert.throws(() => buildProposalDocument(quoteCase()), /Proposal belum dapat diekspor/);
+});
+
+test('proposal exports a published immutable version before client consent and excludes broker-private material', async () => {
+  let state = readyCase(true, false);
+  state = act(state, { type: 'saveNotes', notes: 'PRIVATE-BROKER-NOTES' });
+  const before = structuredClone(state);
+  const snapshot = getActiveProposal(state)!;
+  const { text, xml } = await documentText(await createProposalBlob(state));
+  assert.ok(text.includes('PROPOSAL PROPERTY ALL RISKS'));
+  assert.ok(text.includes(`Kasus: ${state.id}`));
+  assert.ok(text.includes('Produsen: broker'));
+  assert.ok(text.includes('Snapshot proposal: proposal-1 v1'));
+  assert.ok(text.includes(`Wording version: ${snapshot.wordingVersion}`));
+  assert.ok(text.includes(`Material revision: ${snapshot.materialRevision}`));
+  assert.ok(text.includes(`Dipublikasikan: ${snapshot.at}`));
+  assert.ok(text.includes('SELURUH DATA FIKTIF'));
+  assert.ok(text.includes('Enhancement ditolak'));
+  assert.ok(text.includes('Penarikan wording lama dicatat'));
+  assert.ok(text.includes('Register amandemen — terpisah dari wording'));
+  assert.ok(text.includes('Asuransi Fiktif A · 100%'));
+  assert.ok(text.includes('Schedule checked'));
+  assert.ok(text.includes('IDR 3.381.000,00'));
+  assert.ok(text.includes('versi sumber baru untuk ditinjau kembali'));
+  for (const wording of snapshot.wording.filter(item => !['rejected-enhancement', 'withdrawal-accepted'].includes(item.disposition))) {
+    assert.ok(text.includes(wording.outgoing), wording.title);
+  }
+  for (const privateText of ['PRIVATE-BROKER-NOTES', 'Original words checked against source.', 'Underwriter A (external)',
+    'Manual external response.', 'Insurer confirms this QS wording and 100% share.', 'Explicit withdrawal decision retained.',
+    'Page 1, cross-out', 'Requested enhancement <literal> & wording.\nSecond line retained exactly.', ...snapshot.sourceVersionIds]) {
+    assert.equal(text.includes(privateText), false, `Private content must not enter proposal: ${privateText}`);
+  }
+  assert.doesNotMatch(xml, /documentProtection|<w:pict|<w:drawing/);
+  assert.deepEqual(state, before);
+
+  let unconfirmed = quoteCase();
+  unconfirmed = act(unconfirmed, { type: 'recordInsurerResponse', response: {
+    ...snapshot.responses[0]!, materialRevision: getCurrentQuote(unconfirmed)!.materialRevision,
+    wordingVersion: getCurrentQuote(unconfirmed)!.wordingVersion, quoteId: getCurrentQuote(unconfirmed)!.id,
+  } });
+  unconfirmed = act(unconfirmed, { type: 'publishProposal' });
+  assert.equal(unconfirmed.agreements.length, 0);
+  assert.equal(unconfirmed.instructions.length, 0);
+  const pending = await documentText(await createProposalBlob(unconfirmed));
+  assert.ok(pending.text.includes('Menunggu konfirmasi periode berjalan'));
+  await assert.rejects(createRenewalBlob(unconfirmed), /DFS belum dapat diekspor/);
 });
 
 test('early QS exports historical unconfirmed values with exact rates and excluded-peril context', async () => {
@@ -117,6 +165,8 @@ test('DFS package preserves snapshot provenance, verbatim clauses, separate deci
   assert.ok(text.includes('client-demo'));
   assert.ok(text.includes('Client agrees to this exact proposal.'));
   assert.ok(text.includes('Client instructs renewal on this exact proposal.'));
+  assert.ok(text.includes('Register amandemen — terpisah dari wording asli'));
+  assert.ok(text.indexOf('Register amandemen — terpisah dari wording asli') > text.indexOf('Requested enhancement <literal> & wording.\nSecond line retained exactly.'));
   assert.ok(text.includes('IDR 3.381.000,00'));
   assert.ok(text.includes('IDR 3.400.000,00'));
   assert.deepEqual(state, before, 'Document generation must not change case state.');
@@ -133,18 +183,21 @@ test('Word rendering preserves per-mille units without numeric conversion', asyn
   assert.ok(text.includes('IDR 3.381.000,00'));
 });
 
-test('material changes reject stale QS and DFS export while preserving old snapshots', async () => {
+test('material changes reject stale QS, proposal and DFS exports while preserving old snapshots', async () => {
   let state = readyCase();
   const oldDfs = structuredClone(state.dfsSnapshots);
   const oldQs = structuredClone(state.quoteSnapshots);
+  const oldProposals = structuredClone(state.proposals);
   const terms = structuredClone(state.terms);
   terms.premiumLines[0]!.rate.value = '0.05';
   state = act(state, { type: 'reviseTerms', terms, note: 'Changed terms need fresh evidence.' });
   assert.equal(isRenewalCase(state), true);
   await assert.rejects(createRenewalBlob(state), /belum dapat diekspor/);
   await assert.rejects(createQuoteBlob(state), /belum dapat diekspor/);
+  await assert.rejects(createProposalBlob(state), /belum dapat diekspor/);
   assert.deepEqual(state.dfsSnapshots, oldDfs);
   assert.deepEqual(state.quoteSnapshots, oldQs);
+  assert.deepEqual(state.proposals, oldProposals);
 });
 
 test('session summary exposes stage blockers and retained client decisions before readiness', () => {

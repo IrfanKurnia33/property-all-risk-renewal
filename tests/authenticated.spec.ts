@@ -55,12 +55,21 @@ test('authenticated renewal isolates four accounts, retains stale drafts and exp
     await stage(b1,'Bahan renewal');
     const sourceIds=new Set(getCurrentWording(fixture.initial).items.flatMap(w=>[w.priorSource?.documentVersionId,w.outgoingSource.documentVersionId]).filter((x):x is string=>!!x));
     sourceIds.add('reply-'+fixture.initial.selectedOptionId);
+    sourceIds.add('binding-'+fixture.initial.selectedOptionId);
     for(const id of sourceIds){const form=b1.locator('#upload-'+id);await form.locator('input[type=file]').setInputFiles({name:id+'.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7\nFictional source for browser QA.\n%%EOF')});await form.getByRole('button',{name:'Unggah dan finalisasi',exact:true}).click();await expect(form).toHaveCount(0);}
     for(const w of getCurrentWording(fixture.initial).items){const form=b1.locator('#review-'+w.id);await form.getByLabel('Catatan review wording').fill('Fictional sources and original wording checked.');await saved(b1,()=>form.getByRole('button',{name:'Simpan review wording',exact:true}).click());}
     await saved(b1,()=>b1.getByTestId('send-quote').click());await expect(b1.getByTestId('export-qs')).toBeEnabled();
     await stage(b1,'Review asuransi');const response=b1.locator('#record-response');await response.locator('#external-respondent').fill('PRIVATE-UNDERWRITER-'+fixture.run);await response.locator('#response-source').selectOption('reply-'+fixture.initial.selectedOptionId);await response.locator('#response-evidence').fill('Fictional acceptance of QS and 100% share.');
     await saved(b1,()=>b1.getByTestId('record-response').click());await stage(b1,'Proposal klien');await saved(b1,()=>b1.getByTestId('publish-proposal').click());
+    const [proposalDownload]=await Promise.all([b1.waitForEvent('download'),b1.getByTestId('export-proposal').click()]);
+    const proposalPath=await proposalDownload.path();
+    const proposalXml=new TextDecoder().decode(unzipSync(new Uint8Array(await readFile(proposalPath!)))['word/document.xml']);
+    expect(proposalXml.includes('PROPOSAL')).toBe(true);expect(/PRIVATE-/.test(proposalXml)).toBe(false);
     await c1.getByRole('button',{name:'Muat ulang daftar',exact:true}).click();await c1.getByRole('button').filter({hasText:fixture.caseA}).click();await expect(c1.getByRole('heading',{name:fixture.initial.clientName,exact:true})).toBeVisible();
+    await expect(c1.getByTestId('client-export-proposal')).toBeEnabled();
+    const [clientProposalDownload]=await Promise.all([c1.waitForEvent('download'),c1.getByTestId('client-export-proposal').click()]);
+    const clientProposalPath=await clientProposalDownload.path();
+    expect(new TextDecoder().decode(unzipSync(new Uint8Array(await readFile(clientProposalPath!)))['word/document.xml'])).toBe(proposalXml);
     const safeResponse=await fixture.api(2,fixture.caseA);expect(safeResponse.status).toBe(200);const safe=await safeResponse.text();expect(/PRIVATE-|outgoingSource|replySource|externalRespondent|sourceVersionIds/.test(safe)).toBe(false);
     expect((await fixture.api(2,fixture.caseB)).status).toBe(404);expect((await fixture.api(3,fixture.caseA)).status).toBe(404);
     const staleClient=await contexts[2].newPage();await staleClient.goto('/');await staleClient.getByRole('button').filter({hasText:fixture.caseA}).click();
@@ -72,11 +81,16 @@ test('authenticated renewal isolates four accounts, retains stale drafts and exp
     await c1.getByRole('button',{name:'Muat ulang versi terbaru',exact:true}).click();await expect(c1.getByTestId('client-agree')).toBeEnabled();
     await c1.locator('#client-decision-evidence').fill('Fictional agreement to this proposal.');await c1.getByTestId('client-agree').click();await expect(c1.getByTestId('client-instruct')).toBeEnabled();await c1.locator('#client-decision-evidence').fill('Fictional renewal instruction for this proposal.');await c1.getByTestId('client-instruct').click();await expect(c1.getByText('Instruksi tersimpan',{exact:true})).toBeVisible();
     await b1.getByRole('button',{name:'Muat ulang versi terbaru',exact:true}).click();await expect(b1.locator('fieldset.main-column')).toBeEnabled();await stage(b1,'Rekonsiliasi');
-    for(const l of fixture.initial.locations){const form=b1.locator('#match-'+l.id);await form.getByLabel('Catatan pencocokan').fill('Fictional client evidence matched.');await saved(b1,()=>form.getByRole('button',{name:'Simpan pencocokan',exact:true}).click());}
+    for(const l of fixture.initial.locations){const form=b1.locator('#match-'+l.id);await form.getByLabel('Hasil pencocokan').selectOption('matched');await form.getByLabel('Catatan pencocokan').fill('Fictional client evidence matched.');await saved(b1,()=>form.getByRole('button',{name:'Simpan pencocokan',exact:true}).click());}
     await stage(b1,'Final review');for(const key of ['identity','period','rate','deductible','clauses'])await saved(b1,()=>b1.getByTestId('check-'+key).check());
     await saved(b1,()=>b1.getByTestId('issue-dfs').click());
     const download=b1.waitForEvent('download');await b1.getByTestId('export-word').click();const word=await download;const path=await word.path();const xml=new TextDecoder().decode(unzipSync(new Uint8Array(await readFile(path!)))['word/document.xml']);
     expect(xml.includes(fixture.caseA)).toBe(true);expect(xml.includes('DFS')).toBe(true);expect(xml.includes(getCurrentWording(fixture.initial).items[0].outgoing)).toBe(true);
+    const dispatch=b1.locator('#binding-dispatch');await dispatch.locator('#dispatch-reference').fill('Fictional manual dispatch QA');await dispatch.locator('#dispatch-recipient').fill('Asuransi Fiktif A');await dispatch.locator('#dispatch-time').fill('2026-11-19T21:00');
+    await saved(b1,()=>b1.getByTestId('request-binding').click());
+    const acknowledgment=b1.locator('#binding-ack');await acknowledgment.locator('#ack-respondent').fill('Fictional insurer respondent');await acknowledgment.locator('#ack-source').selectOption('binding-'+fixture.initial.selectedOptionId);await acknowledgment.locator('#ack-evidence').fill('Fictional acknowledgment binding-1 / dfs-1 for opsi utama.');
+    await saved(b1,()=>b1.getByTestId('acknowledge-binding').click());
+    const complete=await fixture.read();expect(complete.bindingRequests).toHaveLength(1);expect(complete.bindingAcknowledgments).toHaveLength(1);expect(complete.bindingAcknowledgments[0].recordedBy).toBe(fixture.accounts[0].id);
     expect(await b1.evaluate(()=>localStorage.getItem('rekonvia.case.v2'))).toBe('{"old":"fictional local backup"}');
     expect(await b1.evaluate(marker=>Object.values(localStorage).some(v=>v.includes(marker)),'PRIVATE-RETRY-'+fixture.run)).toBe(false);
     await c1.locator('#client-decision-evidence').fill('PRIVATE-UNSAVED-CLIENT-DRAFT');await c1.getByRole('button',{name:'Keluar',exact:true}).click();await expect(c1.getByRole('heading',{name:'Masuk ke Rekonvia',exact:true})).toBeVisible();await expect(c1.locator('#client-decision-evidence')).toHaveCount(0);

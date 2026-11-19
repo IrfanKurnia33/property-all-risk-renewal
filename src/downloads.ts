@@ -1,7 +1,7 @@
 import { getActiveProposal, getBindingBlockers, getCoverageStatus, getCurrentBindingRequest, getCurrentDfs, getCurrentQuote, getCurrentResponses, getExportBlockers, getProposalBlockers, getQsBlockers } from './domain.ts';
 import type { RenewalCase, SourceReference } from './domain.ts';
-import { createRenewalBlob, createQuoteBlob } from '../supabase/functions/_shared/documents.ts';
-export { buildRenewalDocument, buildQuoteDocument, createRenewalBlob, createQuoteBlob } from '../supabase/functions/_shared/documents.ts';
+import { createRenewalBlob, createQuoteBlob, createProposalBlob } from '../supabase/functions/_shared/documents.ts';
+export { buildRenewalDocument, buildQuoteDocument, buildProposalDocument, createRenewalBlob, createQuoteBlob, createProposalBlob } from '../supabase/functions/_shared/documents.ts';
 const stageLabels = { materials: 'Bahan renewal', insurer: 'Review asuransi', proposal: 'Proposal klien', reconciliation: 'Rekonsiliasi data', final: 'Final review & binding' };
 const roleLabels = { broker: 'Broker', client: 'Klien' };
 const filename = (state: RenewalCase, suffix: string) => state.id.replace(/[^a-zA-Z0-9-]/g, '-') + '-r' + state.revision + '-' + suffix;
@@ -35,6 +35,7 @@ export function downloadBlob(blob: Blob, name: string): void {
 
 export async function exportRenewalDocx(state: RenewalCase): Promise<void> { downloadBlob(await createRenewalBlob(state), filename(state, 'draft-renewal.docx')); }
 export async function exportQuoteDocx(state: RenewalCase): Promise<void> { downloadBlob(await createQuoteBlob(state), filename(state, 'QS.docx')); }
+export async function exportProposalDocx(state: RenewalCase): Promise<void> { downloadBlob(await createProposalBlob(state), filename(state, 'proposal.docx')); }
 
 export function buildSessionSummary(state: RenewalCase): string {
   const proposal = getActiveProposal(state);

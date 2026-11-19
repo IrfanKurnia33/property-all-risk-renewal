@@ -29,6 +29,32 @@ test('published client projection excludes notes, raw evidence, private citation
   assert.equal(clientView(state,'unrelated-client').submissions.length,0);
   assert.equal(clientView(state,'unrelated-client').proposal?.id,proposal.id);
 });
+
+test('client working-location projection requires publication and hides another actor or period working data',()=>{
+  assert.deepEqual(clientView(createInitialCase(),'client-demo').currentLocations,[]);
+  const published=proposalReadyCase(),proposal=getActiveProposal(published)!;
+  const locations=proposal.locations.map(location=>({locationId:location.id,...structuredClone(location.values),
+    confirmed:true,evidence:'PRIVATE-OTHER-CLIENT-CONFIRMATION'}));
+  locations[0]={...locations[0],name:'PRIVATE-OTHER-CLIENT-LOCATION',address:'PRIVATE-OTHER-CLIENT-ADDRESS'};
+  const actor={id:'client-other',role:'client' as const};
+  const working=applyAction(published,actor,{type:'submitLocations',proposalId:proposal.id,locations},published.lockVersion);
+  const otherView=clientView(working,'client-demo');
+  assert.deepEqual(otherView.currentLocations[0]?.values,proposal.locations[0].values);
+  assert.equal(otherView.currentLocations[0]?.ownConfirmation,null);
+  assert.doesNotMatch(JSON.stringify(otherView),/PRIVATE-OTHER-CLIENT-/);
+  const ownView=clientView(working,actor.id);
+  assert.equal(ownView.currentLocations[0]?.values.name,locations[0].name);
+  assert.equal(ownView.currentLocations[0]?.ownConfirmation?.source,locations[0].evidence);
+
+  const terms={...structuredClone(working.terms),periodStart:'2028-01-01',periodEnd:'2028-12-31'};
+  const anotherPeriod=applyAction(working,LOCAL_ACTORS.broker,{type:'reviseTerms',terms,note:'New period remains unpublished.'},working.lockVersion);
+  const staleView=clientView(anotherPeriod,actor.id);
+  assert.deepEqual(staleView.currentLocations[0]?.values,proposal.locations[0].values);
+  assert.equal(staleView.currentLocations[0]?.ownConfirmation,null);
+  const anotherOption=applyAction(working,LOCAL_ACTORS.broker,{type:'selectOption',optionId:'alternatif'},working.lockVersion);
+  assert.equal(clientView(anotherOption,actor.id).proposal,null);
+  assert.deepEqual(clientView(anotherOption,actor.id).currentLocations,[]);
+});
 test('verified file attachment is immutable and does not establish client confirmation',()=>{
   const initial=createInitialCase();
   const action={type:'attachEvidence' as const,documentVersionId:initial.documents[0].id,

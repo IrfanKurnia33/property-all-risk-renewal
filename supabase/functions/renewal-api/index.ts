@@ -4,7 +4,9 @@ import type { Actor, CaseAction, RenewalCase } from '../_shared/domain.ts';
 import { ApiError, assertKeys, caseIdPattern, clientProposal, clientView, commandAction, parseCommand, requiredSourceIds, uuid } from '../_shared/api-contract.ts';
 import type { Command } from '../_shared/api-contract.ts';
 import { fileType, MAX_FILE, validateUpload } from '../_shared/upload-validation.ts';
-import { createQuoteBlob, createRenewalBlob } from '../_shared/documents.ts';
+import { createProposalBlob, createQuoteBlob, createRenewalBlob } from '../_shared/documents.ts';
+import { assignmentState, createManagedCase, parseCaseAssignment, parseCaseCreation } from '../_shared/case-management.ts';
+import { handleAi } from './ai.ts';
 
 const bucket='renewal-documents';
 const origins=new Set(['http://localhost:5173','http://127.0.0.1:5173','http://localhost:4173','http://127.0.0.1:4173','https://property-all-risk-renewal.vercel.app']);
@@ -14,17 +16,20 @@ function dbError(error: {code?:string;message?:string}|null) {
   if(!error)return;
   if(error.message?.includes('VERSION_CONFLICT')) throw new ApiError(409,'VERSION_CONFLICT','Versi kasus berubah. Muat ulang dan tinjau draf sebelum mencoba lagi.');
   if(error.message?.includes('IDEMPOTENCY_CONFLICT')) throw new ApiError(409,'IDEMPOTENCY_CONFLICT');
+  if(error.message?.includes('CASE_EXISTS'))throw new ApiError(409,'CASE_ALREADY_EXISTS');
+  if(error.message?.includes('CONTRIBUTING_CLIENT_LOCKED'))throw new ApiError(422,'ASSIGNMENT_HAS_EVIDENCE','Akun yang telah memberikan bukti atau keputusan memerlukan peninjauan pengelola sebelum aksesnya diubah.');
+  if(error.message?.includes('BINDING_COMPLETE'))throw new ApiError(422,'BINDING_COMPLETE','Akses pada kasus yang selesai binding sudah dikunci.');
   if(error.code==='42501')throw new ApiError(403,'FORBIDDEN');
   if(error.code==='P0002')throw new ApiError(404,'NOT_FOUND');
   if(error.code==='22023')throw new ApiError(422,'INVALID_TRANSITION');
   throw new ApiError(500,'DATABASE_ERROR');
 }
-async function body(request:Request) {
+async function body(request:Request,limit=256*1024) {
   if(!request.headers.get('content-type')?.startsWith('application/json')) throw new ApiError(415,'JSON_REQUIRED');
-  if(Number(request.headers.get('content-length')??0)>256*1024)throw new ApiError(413,'REQUEST_TOO_LARGE');
+  if(Number(request.headers.get('content-length')??0)>limit)throw new ApiError(413,'REQUEST_TOO_LARGE');
   const reader=request.body?.getReader(); if(!reader)throw new ApiError(422,'BODY_REQUIRED');
   const chunks:Uint8Array[]=[];let size=0;
-  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>256*1024){await reader.cancel();throw new ApiError(413,'REQUEST_TOO_LARGE');}chunks.push(value);}
+  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();throw new ApiError(413,'REQUEST_TOO_LARGE');}chunks.push(value);}
   const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
   try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{throw new ApiError(422,'INVALID_JSON');}
 }
@@ -42,6 +47,15 @@ async function context(caseId:string,userId:string):Promise<{state:RenewalCase;a
   return {state:c.state,actor:{id:userId,role:m.role},workspaceId:c.workspace_id};
 }
 const view=(state:RenewalCase,actor:Actor)=>actor.role==='broker'?{role:'broker',state}:{role:'client',...clientView(state,actor.id)};
+async function readView(state:RenewalCase,actor:Actor) {
+  const result=view(state,actor);
+  if(result.role==='client' && 'proposal' in result && result.proposal){
+    const {data,error}=await service.from('export_artifacts').select('id').eq('case_id',state.id)
+      .contains('manifest',{kind:'proposal',snapshotId:result.proposal.id}).limit(1);dbError(error);
+    result.proposalDocumentAvailable=!!data?.length;
+  }
+  return result;
+}
 const broker=(actor:Actor)=>{if(actor.role!=='broker')throw new ApiError(403,'BROKER_REQUIRED');};
 async function retry(command:Command,actor:Actor) {
   const {data,error}=await service.from('command_receipts').select('request,result').eq('case_id',command.caseId).eq('actor_id',actor.id).eq('idempotency_key',command.idempotencyKey).maybeSingle();dbError(error);
@@ -80,7 +94,15 @@ async function exportLink(artifact:{path:string;id:string;manifest:unknown}) {
 async function handle(request:Request,userId:string) {
   const segments=new URL(request.url).pathname.split('/').filter(Boolean);
   const base=segments.indexOf('renewal-api'); const parts=segments.slice(base+1);
+  if(parts[0]==='case-setup' && parts.length===1 && request.method==='GET') {
+    const {data,error}=await service.rpc('broker_case_setup',{p_actor:userId});dbError(error);return data;
+  }
   if(parts[0]!=='cases')throw new ApiError(404,'NOT_FOUND');
+  if(parts.length===1 && request.method==='POST') {
+    const input=parseCaseCreation(await body(request));
+    const next=createManagedCase(input,userId);
+    const {data,error}=await service.rpc('create_renewal_case',{p_actor:userId,p_request:input,p_state:next});dbError(error);return data;
+  }
   if(parts.length===1 && request.method==='GET') {
     // Use the caller's JWT for the list as an additional RLS check.
     const caller=createClient(url,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:request.headers.get('authorization')!}},auth:{persistSession:false}});
@@ -96,10 +118,28 @@ async function handle(request:Request,userId:string) {
     return {cases:summaries};
   }
   const caseId=parts[1];const {state,actor,workspaceId}=await context(caseId,userId);
-  if(parts.length===2 && request.method==='GET')return view(state,actor);
+  if(parts.length===2 && request.method==='GET')return readView(state,actor);
+  if(parts[2]==='ai') {
+    broker(actor);
+    const limit=parts.length===7 && parts[3]==='batches' && parts[5]==='steps'?3*1024*1024:256*1024;
+    return handleAi({service,state,actor,workspaceId},request.method,parts.slice(3),request.method==='POST'?await body(request,limit):undefined);
+  }
+  if(parts[2]==='assignments' && parts.length===3) {
+    broker(actor);
+    if(request.method==='GET') {
+      const {data,error}=await service.rpc('broker_case_assignments',{p_case_id:caseId,p_actor:userId});dbError(error);return data;
+    }
+    if(request.method==='POST') {
+      const input=parseCaseAssignment(await body(request));
+      const prior=await service.from('command_receipts').select('request,result').eq('case_id',caseId).eq('actor_id',actor.id).eq('idempotency_key',input.idempotencyKey).maybeSingle();dbError(prior.error);
+      // SQL rechecks the receipt and current membership under the same case lock.
+      const next=prior.data?state:assignmentState(state,actor.id);
+      const {data,error}=await service.rpc('set_case_assignments',{p_case_id:caseId,p_actor:actor.id,p_expected_version:input.expectedVersion,p_idempotency_key:input.idempotencyKey,p_client_user_ids:input.clientUserIds,p_next_state:next});dbError(error);return data;
+    }
+  }
   if(parts[2]==='commands' && parts.length===3 && request.method==='POST') {
     const command=parseCommand(await body(request));if(command.caseId!==caseId)throw new ApiError(422,'CASE_MISMATCH');
-    const result=await commit(command,state,actor);return view(result.state,actor);
+    const result=await commit(command,state,actor);return readView(result.state,actor);
   }
   if(parts[2]==='uploads' && parts[3]==='start' && parts.length===4 && request.method==='POST') {
     broker(actor);const input=await body(request);assertKeys(input,['documentVersionId','name','byteSize','mimeType']);
@@ -147,15 +187,28 @@ async function handle(request:Request,userId:string) {
     if(parts[4]==='download')return download(doc.object_path);
     // Sharing is deliberately not implemented as an unversioned table update.
   }
+  if(parts[2]==='proposals' && parts[4]==='document' && parts.length===5 && request.method==='POST') {
+    assertKeys(await body(request),[]);
+    const proposal=state.proposals.find(p=>p.id===parts[3]);
+    if(!proposal)throw new ApiError(404,'NOT_FOUND');
+    const published=await service.from('published_client_proposals').select('id').eq('case_id',caseId).eq('id',proposal.id).maybeSingle();dbError(published.error);
+    if(!published.data)throw new ApiError(404,'NOT_FOUND');
+    const {data,error}=await service.from('export_artifacts').select('object_path').eq('case_id',caseId)
+      .contains('manifest',{kind:'proposal',snapshotId:proposal.id}).order('created_at',{ascending:false}).limit(1);dbError(error);
+    if(!data?.length)throw new ApiError(404,'PROPOSAL_DOCUMENT_REQUIRED','Broker belum menyiapkan Word untuk proposal yang dipublikasikan ini.');
+    // Recheck assignment immediately before releasing an immutable, published artifact.
+    await context(caseId,userId);
+    return {...await download(data[0].object_path),proposalId:proposal.id};
+  }
   if(parts[2]==='exports' && parts.length===3 && request.method==='POST') {
     broker(actor);const input=await body(request);assertKeys(input,['kind','expectedVersion','idempotencyKey']);
-    if(input.kind!=='QS' && input.kind!=='DFS')throw new ApiError(422,'EXPORT_TEMPLATE_UNAVAILABLE');
+    if(typeof input.kind!=='string' || !['QS','proposal','DFS'].includes(input.kind))throw new ApiError(422,'EXPORT_TEMPLATE_UNAVAILABLE');
     // Reconstruct an old export request before looking at today's current snapshot.
     // A successful identical retry remains valid after a subsequent material edit.
     if(typeof input.idempotencyKey!=='string' || !uuid.test(input.idempotencyKey))throw new ApiError(422,'INVALID_COMMAND');
     input.idempotencyKey=input.idempotencyKey.toLowerCase();
     const prior=await service.from('command_receipts').select('request').eq('case_id',caseId).eq('actor_id',actor.id).eq('idempotency_key',input.idempotencyKey).maybeSingle();dbError(prior.error);
-    const snapshot=input.kind==='QS'?getCurrentQuote(state):getCurrentDfs(state);
+    const snapshot=input.kind==='QS'?getCurrentQuote(state):input.kind==='proposal'?getActiveProposal(state):getCurrentDfs(state);
     if(prior.data) {
       if(prior.data.request.type!=='recordExport')throw new ApiError(409,'IDEMPOTENCY_CONFLICT');
       const priorCommand=parseCommand({caseId,expectedVersion:input.expectedVersion,idempotencyKey:input.idempotencyKey,type:'recordExport',
@@ -169,11 +222,12 @@ async function handle(request:Request,userId:string) {
     if(state.lockVersion!==command.expectedVersion)throw new ApiError(409,'VERSION_CONFLICT');
     await proof(state,commandAction(command));
     try{applyAction(state,actor,commandAction(command),command.expectedVersion);}catch(error){throw new ApiError(422,'WORKFLOW_BLOCKED',error instanceof Error?error.message:'Export blocked.');}
-    const blob=await (input.kind==='QS'?createQuoteBlob(state):createRenewalBlob(state));
+    const blob=await (input.kind==='QS'?createQuoteBlob(state):input.kind==='proposal'?createProposalBlob(state):createRenewalBlob(state));
     const bytes=new Uint8Array(await blob.arrayBuffer());if(bytes.length>MAX_FILE)throw new ApiError(422,'EXPORT_TOO_LARGE');
     const id=crypto.randomUUID(),path=`${workspaceId}/${caseId}/exports/${id}.docx`;
     const {error}=await service.storage.from(bucket).upload(path,bytes,{contentType:fileType('export.docx'),upsert:false});if(error)throw new ApiError(500,'EXPORT_STORAGE_ERROR');
-    const artifact={kind:'export',id,path,manifest:{kind:input.kind,snapshotId:snapshot.id,caseId,lockVersion:state.lockVersion,revision:state.revision,sourceVersionIds:state.documents.filter(d=>d.file).map(d=>({id:d.id,sha256:d.file!.sha256})),fictional:state.fictional}};
+    const sources=requiredSourceIds(state,commandAction(command));
+    const artifact={kind:'export',id,path,manifest:{kind:input.kind,snapshotId:snapshot.id,caseId,optionId:state.selectedOptionId,producer:actor.id,lockVersion:state.lockVersion,revision:state.revision,sourceVersionIds:state.documents.filter(d=>sources.includes(d.id) && d.file).map(d=>({id:d.id,sha256:d.file!.sha256})),fictional:state.fictional}};
     let result;
     try{result=await commit(command,state,actor,artifact);}catch(error){await service.storage.from(bucket).remove([path]);throw error;}
     // A simultaneous identical retry may have committed a different generated path.
