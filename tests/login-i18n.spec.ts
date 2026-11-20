@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 import { clientView } from '../supabase/functions/_shared/api-contract.ts';
 import { proposalReadyCase } from './fixtures.ts';
 
-const language = (page: Page) => page.locator('.language-switcher select');
+const language = (page: Page, locale: 'en' | 'id') => page.getByTestId('locale-' + locale);
 async function mockAccount(page: Page, role: 'broker' | 'client') {
   const state = proposalReadyCase();
   const user = { id: 'client-demo', email: 'qa@example.invalid', aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-11-19T00:00:00Z' };
@@ -29,12 +29,12 @@ test('login defaults to US English, translates errors and remembers Indonesian a
   await page.route('**/auth/v1/token**', route => route.fulfill({ status: 400, json: { error: 'invalid_grant', error_description: 'Invalid login credentials' } }));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Sign in to Rekonvia' })).toBeVisible();
-  await expect(language(page)).toHaveValue('en_US');
+  await expect(language(page, 'en')).toHaveAttribute('aria-pressed', 'true');
   await page.getByLabel('Email', { exact: true }).fill('qa@example.invalid');
   await page.getByLabel('Password', { exact: true }).fill('fictional-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('email or password is incorrect');
-  await language(page).selectOption('id_ID');
+  await language(page, 'id').click();
   await expect(page.getByRole('heading', { name: 'Masuk ke Rekonvia' })).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Email atau kata sandi');
   await page.reload();
@@ -49,23 +49,26 @@ for (const role of ['broker', 'client'] as const) test(`${role} stays bilingual 
   await mockAccount(page, role);
   await page.goto('/');
   await signIn(page);
-  await language(page).selectOption('id_ID');
+  await language(page, 'id').click();
   await expect(page.getByRole('heading', { name: 'Kasus renewal', exact: true })).toBeVisible();
   await page.getByRole('button').filter({ hasText: 'Buka kasus →' }).click();
   const draft = role === 'broker' ? page.locator('#doc-name') : page.locator('#client-name-0');
+  await page.getByTestId('section-tab-' + (role === 'broker' ? 'sources' : 'locations')).click();
   if (role === 'broker') await page.getByText('Catat versi sumber fiktif baru', { exact: true }).click();
   await draft.fill('Original client data / data asli');
-  await language(page).selectOption('en_US');
+  await language(page, 'en').click();
   await expect(draft).toHaveValue('Original client data / data asli');
   await expect(page.getByRole('heading', { name: role === 'broker' ? 'Documents and source versions' : 'Current-period data confirmation', exact: true })).toBeVisible();
   if (role === 'broker') {
+    await page.getByTestId('section-tab-ai').click();
     await page.getByText('AI assistance for renewal sources · optional', { exact: true }).click();
     await expect(page.getByRole('heading', { name: 'AI source assistance', exact: true })).toBeVisible();
-    await language(page).selectOption('id_ID');
+    await language(page, 'id').click();
     await expect(page.getByRole('heading', { name: 'Bantuan AI untuk sumber', exact: true })).toBeVisible();
-    await language(page).selectOption('en_US');
+    await language(page, 'en').click();
   }
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.locator('[data-testid="account-menu-trigger"]:visible').click();
+  await page.locator('[data-testid="account-menu-actions"]:visible').getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to Rekonvia' })).toBeVisible();
-  await expect(language(page)).toHaveValue('en_US');
+  await expect(language(page, 'en')).toHaveAttribute('aria-pressed', 'true');
 });

@@ -31,6 +31,9 @@ test('production brand uses semantic colors, local fonts and the original wordma
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/assets/logos/logomark-flat.svg');
   const logo = page.locator('.sidebar').getByAltText('Rekonvia');
   await expect(logo).toHaveAttribute('src', '/assets/logos/logotype-light-mode.svg');
+  const mark = page.locator('.sidebar .brand-lockup-mark');
+  await expect(mark).toHaveAttribute('src', '/assets/logos/logomark-gradient.svg');
+  expect(await mark.evaluate(element => element.nextElementSibling?.getAttribute('alt'))).toBe('Rekonvia');
   const dimensions = await logo.evaluate(image => {
     const element = image as HTMLImageElement;
     const bounds = element.getBoundingClientRect();
@@ -52,7 +55,10 @@ test('production brand uses semantic colors, local fonts and the original wordma
   expect(gradient).toContain('rgb(63, 54, 204)');
   await page.setViewportSize({ width: 320, height: 844 });
   await expect(page.locator('.topbar').getByAltText('Rekonvia')).toBeVisible();
-  await expect(page.getByLabel('Peran simulasi')).toHaveCSS('font-size', '16px');
+  await page.locator('.mobile-stage-nav > summary').click();
+  await expect(page.getByTestId('role-select-mobile')).toHaveCSS('font-size', '16px');
+  await page.locator('.mobile-stage-nav > summary').click();
+  await page.getByTestId('section-tab-sources').click();
   const countLines = await page.getByText('8 dokumen', { exact: true }).evaluate(element => {
     const tops = [...element.childNodes]
       .filter(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())
@@ -64,6 +70,7 @@ test('production brand uses semantic colors, local fonts and the original wordma
     return new Set(tops).size;
   });
   expect(countLines).toBe(1);
+  await page.getByTestId('section-tab-wording').click();
   const placeholder = await page.locator('#review-note-clause-1').evaluate(element => {
     element.setAttribute('placeholder', 'Contoh sumber');
     const style = getComputedStyle(element, '::placeholder');
@@ -87,6 +94,7 @@ test('Preflight preserves centered dialogs, clause numbering, focus and reduced 
   }
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId('section-tab-sources').click();
   await page.getByRole('button', { name: 'Lihat dokumen', exact: true }).first().click();
   const source = page.getByRole('dialog', { name: 'Final slip 2026' });
   await expect(source).toBeVisible();
@@ -94,8 +102,10 @@ test('Preflight preserves centered dialogs, clause numbering, focus and reduced 
   expect(Math.abs(bounds.x + bounds.width / 2 - 720)).toBeLessThan(2);
   await expect(source.locator('.clause-list')).toHaveCSS('list-style-type', 'decimal');
   await page.keyboard.press('Escape');
+  await page.getByTestId('section-tab-wording').click();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const button = page.locator('#review-clause-1').getByRole('button', { name: 'Simpan review wording', exact: true });
+  await page.keyboard.press('Tab');
   await button.focus();
   await expect(button).toHaveCSS('outline-color', 'rgb(63, 54, 204)');
   await expect(button).toHaveCSS('outline-width', '3px');

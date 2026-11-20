@@ -2,6 +2,8 @@
 
 Updated 20 November 2026. Phases 4–5 implement the authenticated manual workflow and optional broker-only AI source review: case creation/assignment, historical onboarding, private uploads, focused client proposals, three editable Word templates and recorded binding. The normal Vite build uses Supabase; the previous local simulation is isolated behind an explicit test build flag. The Supabase API and migrations are deployed. Publishing this frontend revision to Vercel remains a separate step. Live AI text passed; live image assistance encountered provider errors/rate limiting and remains unverified.
 
+The latest frontend revisions add English/Indonesian localization, section tabs, a sticky header/context panel and a sidebar account menu. These presentation changes retain the existing Auth, permissions, API and readiness rules; they require no new migration or Supabase dashboard setting.
+
 ## Deployed foundation
 
 - Project: `rekonvia-db`, Singapore (`ap-southeast-1`).
@@ -45,6 +47,28 @@ Do not provision a second client against the default first case unless that shar
 The owner creates real pilot accounts. The repository tooling can create membership/assignment records, seed fictional cases, deploy migrations/functions and run backend tests. The temporary QA accounts used during implementation are signed out and banned; they are not your pilot accounts.
 
 The owner-provisioned OPENROUTER_API_KEY Edge Function secret is configured and used only by the authenticated server. No further key setup is required. It must never be added to frontend variables. Read the [AI guide](ai-assistance.md) before testing with fictional sources; free-route availability and model accuracy are separate from technical acceptance.
+
+## Navigate the current interface
+
+English is the default. The header's **EN / ID** toggle changes application labels, date/number formatting and the two built-in quotation option names (**Main option / Separate alternative**; **Opsi utama / Alternatif terpisah** in Indonesian). The preference is saved locally; changing it does not rewrite source wording, evidence or case data. Document templates are not selected by the interface language.
+
+The desktop sidebar contains the five broker workflow stages. Horizontal tabs below the case heading select a section within the stage:
+
+| Broker stage | Sections |
+| --- | --- |
+| Renewal materials | QS overview; Document sources; Wording; Terms & premium; AI assistance; Case access |
+| Insurer review | Panel overview; Record response; Wording; Terms & premium |
+| Client proposal | Published proposal, publication and proposal Word download in one view |
+| Data reconciliation | One tab per location |
+| Final review & binding | DFS readiness; Binding; Session notes |
+
+Use **Document sources** for uploads and **Case access** to assign existing client accounts. Insurers remain external parties; brokers record their responses under **Insurer review → Record response**. There is no insurer login or role picker in the authenticated workflow.
+
+Assigned clients have their own restricted workspace with **Proposal**, **Location data**, **Renewal decisions** and **Response history** tabs. Confirm current-period locations before recording proposal acceptance and renewal instruction as separate actions. Client responses remain subject to the existing version and readiness checks.
+
+Tabs and language changes retain unsaved form entries in the current workspace. They do not save them to the server. Save before leaving; workflow-stage and case navigation guard unsaved manual forms, and reload/conflict handling retains drafts for review. AI preparation has its own memory-only limits, described in the [AI guide](ai-assistance.md#interrupted-work-and-failures).
+
+Select your email/role card below the desktop sidebar footer for **Case list** or **Sign out**. On narrow screens, expand the stage navigation (broker) or **Account menu** (case list/client), then open the identity card. The case list itself offers **Sign out**, without a redundant **Case list** action. The header stays visible while scrolling; the broker readiness/activity context stays beside the form on wide screens and returns to normal document flow on smaller screens.
 
 ## Local credentials and commands
 
@@ -134,9 +158,9 @@ npm.cmd run test:brand
 npm.cmd run test:e2e
 ```
 
-The Phase 4 backend regression passed 89 workflow/export checks and 36 case-management checks. All 66 local tests, 14 isolated-simulation Chromium tests and both authenticated browser journeys passed, together with TypeScript/Deno checks, the production build and brand contract. The migration history is up to date. The expanded visual sweep passed 66 views at six widths, including 6,175 rendered-text and 780 control-boundary contrast checks, without overflow or browser errors. Detailed evidence is recorded in the local implementation plan.
+Recorded Phase 4 backend acceptance passed 89 workflow/export checks, 36 case-management checks and both authenticated browser journeys, together with TypeScript/Deno checks and migration verification. Its visual sweep covered 66 views at six widths, including 6,175 rendered-text and 780 control-boundary contrast checks. These are historical results for that implementation, rather than a new hosted run of the latest UI. The current local browser suite also checks localization, section navigation, retained drafts, keyboard focus, account menus, responsive overflow and sticky positioning using deterministic mocked authenticated responses. Detailed dated execution evidence is recorded in the private implementation plan.
 
-Authenticated browser tests cover new-case creation from exact historical periods/schedules, assignment add/remove, real baseline authoring/uploads, publication and client-safe proposal downloads, stale client/broker drafts, exact retries after losing a successful response, separate agreement/instruction, matching, final checks and recorded manual binding. All three hosted Word archives were downloaded and inspected; ZIP/XML checks verify Unicode, editable tables, verbatim wording and separate amendments. Logout/account switching and expired-session cleanup passed. The test launcher now owns preview directly and restores an authenticated production build after simulation tests.
+Hosted authenticated browser tests cover new-case creation from exact historical periods/schedules, assignment add/remove, real baseline authoring/uploads, publication and client-safe proposal downloads, stale client/broker drafts, exact retries after losing a successful response, separate agreement/instruction, matching, final checks and recorded manual binding. During recorded acceptance, all three hosted Word archives were downloaded and inspected; ZIP/XML checks verified Unicode, editable tables, verbatim wording and separate amendments. Logout/account switching and expired-session cleanup passed. The test launcher owns preview directly and restores an authenticated production build after local simulation/mocked-account tests.
 
 ```powershell
 $env:REKONVIA_RUN_HOSTED_BROWSER_TESTS='1'

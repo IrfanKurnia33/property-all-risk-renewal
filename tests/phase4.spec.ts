@@ -28,6 +28,7 @@ async function stage(page: Page, label: string) {
   }
   await page.locator('.stage-link:visible').filter({ hasText: label }).click();
 }
+const section = (page: Page, id: string) => page.getByTestId('section-tab-' + id).click();
 
 async function command(page: Page, action: () => Promise<unknown>) {
   const [response] = await Promise.all([
@@ -51,6 +52,7 @@ async function responsive(page: Page) {
 }
 
 async function addSource(page: Page, source: { id: string; type: 'prior-slip' | 'QS'; start: string; end: string; status: 'agreed' | 'draft'; producer: string }) {
+  await section(page, 'sources');
   const form = page.locator('#add-document');
   if (!await form.isVisible()) await page.getByText('Catat versi sumber fiktif baru', { exact: true }).click();
   await form.locator('#doc-id').fill(source.id);
@@ -80,6 +82,7 @@ test('brokers create an unconfirmed historical schedule, manage client access an
   const clause = 'Property All Risks Clause — fiktif <literal> & utuh.\nBaris kedua tetap persis.';
   try {
     contexts.push(await browser.newContext(), await browser.newContext());
+    for(const context of contexts)await context.addInitScript(()=>localStorage.setItem('rekonvia.locale.v1','id_ID'));
     const broker = await contexts[0].newPage(), secondBroker = await contexts[1].newPage();
     broker.on('dialog', dialog => { dialogs.push(dialog.message()); void dialog.dismiss(); });
     let failSetup=true,failAccess=true;
@@ -141,6 +144,7 @@ test('brokers create an unconfirmed historical schedule, manage client access an
     expect(JSON.stringify(unpublished)).not.toContain(historical[0].address);
     expect((await fixture.api(3, caseId)).status).toBe(404);
 
+    await section(broker, 'access');
     await broker.getByRole('button',{name:'Muat ulang akses klien',exact:true}).click();
     const access = broker.locator('#case-assignments');
     await expect(access.getByRole('checkbox', { name: fixture.accounts[2].email, exact: true })).toBeChecked();
@@ -182,6 +186,7 @@ test('brokers create an unconfirmed historical schedule, manage client access an
       await expect(upload).toHaveCount(0);
       await expect(broker.locator('fieldset.main-column')).toBeEnabled();
     }
+    await section(broker, 'wording');
     await broker.getByText('Tambah klausul dari baseline disepakati', { exact: true }).click();
     const baseline = broker.locator('#add-baseline-clause');
     await baseline.locator('#baseline-title').fill('Klausul baseline QA');
@@ -197,6 +202,7 @@ test('brokers create an unconfirmed historical schedule, manage client access an
     const review = broker.locator('#review-' + item.id);
     await review.getByLabel('Catatan review wording', { exact: true }).fill('Wording dan kedua versi sumber QA diperiksa manual.');
     await command(broker, () => review.getByRole('button', { name: 'Simpan review wording', exact: true }).click());
+    await section(broker, 'qs');
     await expect(broker.getByTestId('send-quote')).toBeEnabled();
     await command(broker, () => broker.getByTestId('send-quote').click());
     await expect(broker.getByTestId('export-qs')).toBeEnabled();

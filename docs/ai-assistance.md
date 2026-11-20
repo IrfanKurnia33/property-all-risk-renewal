@@ -1,15 +1,17 @@
 # AI source review in Rekonvia
 
-The optional AI panel is available to authenticated brokers in **Bahan renewal**. It helps inspect selected source excerpts and page images. It does not change the case, accept an amendment, confirm client data, record insurer acceptance or clear readiness checks. Clients cannot access its routes, inputs or results.
+Updated 20 November 2026. The optional AI panel is available to authenticated brokers under **Renewal materials → AI assistance** (**Bahan renewal → Bantuan AI**). It helps inspect selected source excerpts and page images. It does not change the case, accept an amendment, confirm client data, record insurer acceptance or clear readiness checks. Clients cannot access its routes, inputs or results.
+
+The interface defaults to English. Use the header's **EN / ID** toggle to switch languages; the preference is saved in this browser. Source excerpts, original files, AI results and entered evidence retain their original text. The instructions below use the English labels.
 
 ## Use the panel
 
-1. Upload and finalize a fictional source file in the document inventory. Check its type, period, option and version.
-2. Expand **Bantuan AI untuk sumber renewal**, then **Siapkan kelompok sumber baru**. Choose a stored source and select **Buka sumber di browser**. The browser downloads the authorized original, verifies its size/hash and prepares text locally. This step does not call OpenRouter.
+1. Open **Renewal materials → Document sources**. Record a source version, then upload and finalize a fictional source file. Check its type, period, option and version.
+2. Select the **AI assistance** tab. Expand **AI assistance for renewal sources · optional**, then **Prepare a new source group**. Choose a saved source and select **Open source in browser**. The browser downloads the authorized original, verifies its size/hash and prepares text locally. This step does not call OpenRouter.
 3. Open each relevant paragraph, table cell, spreadsheet row or PDF page and select the excerpts. Preserve the prior agreed wording, outgoing QS and insurer reply as separate source versions. Extraction order can differ from the original layout; compare against the original.
-4. For a scan or photograph, select its page and orientation, then **Tampilkan pratinjau halaman**. Inspect the image before selecting it. The stored original is unchanged. Select comparison text from the prior slip or QS when reviewing a scanned reply.
-5. Choose extraction or comparison, check the selection/omissions and confirm that it contains only fictional material cleared for external AI processing. **Simpan kelompok pilihan** saves the inputs without invoking a model.
-6. Start each pending step explicitly. The text step uses the selected text. Each image step contains one image plus the selected text context. Image steps cannot compare against other image steps or unseen results. Review those differences manually.
+4. For a scan or photograph, select its page and orientation, then **Show page preview**. Inspect the image before selecting it. The stored original is unchanged. Select comparison text from the prior slip or QS when reviewing a scanned reply.
+5. Choose **Compare excerpts and identify differences** or **Compile findings from selected sources**, check the selection/omissions and confirm that it contains only fictional material cleared for external AI processing. **Save selection group** saves the inputs without invoking a model.
+6. Select **Process step** for each pending step explicitly. The text step uses the selected text. Each image step contains one image plus the selected text context. Image steps cannot compare against other image steps or unseen results. Review those differences manually.
 7. Check every finding against its cited source. The copy action copies the selected source excerpt verbatim; AI-proposed wording remains a read-only suggestion. Record the broker's review or dismissal, then use the existing manual forms for any renewal decision. Agreed baseline wording stays unchanged; amendments are recorded separately.
 
 Review annotations concern the AI suggestion only. They do not establish that a quotation, clause, client confirmation or insurer response is correct. Structurally valid citations do not prove factual accuracy. Browser-prepared excerpts are labeled `browser-ai-input`, not independently verified transcriptions.
@@ -40,9 +42,9 @@ PDF.js prepares PDF text and renders selected pages. DOCX preparation reads para
 
 - Inputs, source locators, original hashes, completed results and review annotations are persisted separately from canonical renewal state. Page-image bytes remain in browser memory; the server records a derived-input hash. After reload, reopen the original and reproduce the pending page/orientation before running it.
 - Completed and failed steps are terminal. Checking them again returns the existing result without another provider call, including after a lost response. A failed attempt requires an explicitly created new batch if the broker chooses to try again.
-- An uncertain network/server result retains the original request envelope. **Periksa permintaan terakhir** checks that same operation. It does not start an automatic retry loop. If the first invocation still runs, reload status after it ends. An abandoned running lease becomes `AI_INTERRUPTED` after 120 seconds.
+- An uncertain network/server result retains the original request envelope. **Check last request** checks that same operation. It does not start an automatic retry loop. If the first invocation still runs, use **Refresh AI status** after it ends. An abandoned running lease becomes `AI_INTERRUPTED` after 120 seconds.
 - Quotas, unavailable eligible providers, invalid output, unsupported images, refusals and timeouts retain completed work. Continue with the source inventory, wording comparison and manual lifecycle. AI failure never grants readiness or blocks the normal renewal commands.
-- Unsent selections, page previews and review-note drafts are memory-only. Save review notes before navigating away or signing out. Case/account changes clear the private UI; authenticated canonical cases and source content are not written to browser storage.
+- Unsent selections, page previews and review-note drafts are memory-only. Switching tabs within **Renewal materials**, or switching EN / ID, retains them. Save selections and review notes before changing workflow stage, leaving the case, reloading or signing out. Case/account changes clear the private UI; authenticated canonical cases and source content are not written to browser storage.
 
 ## Server routing and handling
 
@@ -76,7 +78,7 @@ Execution input is `{ idempotencyKey }`, plus a bounded local JPEG/PNG `imageDat
 
 ## Verification
 
-Install Chromium into the repository cache once with `npm.cmd run test:e2e:install`; `npm.cmd test` now includes actual-browser parser tests. Run `npm.cmd run build` and `npm.cmd run test:brand` as well. PDF.js, its worker and ExcelJS are lazy assets, loaded only for preparation; inspect their actual production output rather than treating the initial application bundle as their cost.
+Install Chromium into the repository cache once with `npm.cmd run test:e2e:install`; `npm.cmd test` includes actual-browser parser tests. Run `npm.cmd run build`, `npm.cmd run test:brand` and `npm.cmd run test:e2e` as well. The default browser suite covers the isolated simulation plus mocked authenticated UI, including language/tab draft retention and account navigation; it does not call the hosted backend. PDF.js, its worker and ExcelJS are lazy assets, loaded only for preparation; inspect their actual production output rather than treating the initial application bundle as their cost.
 
 Hosted checks deliberately create isolated fictional QA workspaces and temporary accounts:
 

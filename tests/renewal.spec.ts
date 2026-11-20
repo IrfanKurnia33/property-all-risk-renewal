@@ -23,11 +23,19 @@ async function stage(page: Page, label: string) {
   }
   await page.locator('.stage-link:visible').filter({ hasText: label }).click();
 }
-const role = (page: Page, value: Role) => page.getByLabel('Peran simulasi').selectOption(value);
+const section = (page: Page, id: string) => page.getByTestId('section-tab-' + id).click();
+async function role(page: Page, value: Role) {
+  if ((page.viewportSize()?.width ?? 1440) <= 800) {
+    const menu = page.locator('.mobile-stage-nav');
+    if (!await menu.evaluate(element => (element as HTMLDetailsElement).open)) await menu.locator('summary').click();
+  }
+  await page.locator('.role-select:visible').selectOption(value);
+}
 const saved = (page: Page): Promise<RenewalCase> => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), CASE_STORAGE_KEY);
 
 async function addInsurerSource(page: Page, type: 'insurer-reply' | 'binding-evidence', id: string, producer: string) {
   await stage(page, 'Bahan renewal');
+  await section(page, 'sources');
   const summary = page.getByText('Catat versi sumber fiktif baru', { exact: true });
   const form = page.locator('#add-document');
   if (!await form.isVisible()) await summary.click();
@@ -41,6 +49,7 @@ async function addInsurerSource(page: Page, type: 'insurer-reply' | 'binding-evi
 
 async function insurerResponse(page: Page, id: string, name: string, share: string, source: string, leader = false) {
   await stage(page, 'Review asuransi');
+  await section(page, 'response');
   const form = page.locator('#record-response');
   await form.locator('#insurer-id').fill(id);
   await form.locator('#insurer-name').fill(name);
@@ -53,6 +62,7 @@ async function insurerResponse(page: Page, id: string, name: string, share: stri
 }
 
 async function reviewWording(page: Page) {
+  await section(page, 'wording');
   for (let i = 1; i <= 4; i++) {
     const form = page.locator('#review-clause-' + i);
     await form.getByLabel('Catatan review wording').fill('Baseline dan QS sama, sumber fiktif diperiksa.');
@@ -85,6 +95,7 @@ test('manual wording review enables an early QS with exact rates and unconfirmed
   await expect(page.locator('#role-select option[value="client"]')).toBeDisabled();
   await expect(page.getByTestId('send-quote')).toBeDisabled();
   await reviewWording(page);
+  await section(page, 'qs');
   await page.getByTestId('send-quote').click();
   const state = await saved(page);
   expect(state.quoteSnapshots).toHaveLength(1);
@@ -92,11 +103,13 @@ test('manual wording review enables an early QS with exact rates and unconfirmed
   expect(state.quoteSnapshots[0].locations.every(location => !location.currentConfirmed)).toBe(true);
   expect(state.terms.premiumLines[0].rate.value).toBe('0.0483');
   await stage(page, 'Review asuransi');
+  await section(page, 'terms');
   await expect(page.getByText('0,0483%', { exact: false }).first()).toBeVisible();
   await expect(page.getByText('IDR 3.381.000,00', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('IDR 3.400.000,00', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Tidak dihitung: cover dikecualikan', { exact: true })).toBeVisible();
   await stage(page, 'Bahan renewal');
+  await section(page, 'qs');
   const download = page.waitForEvent('download');
   await page.getByTestId('export-qs').click();
   const file = await download;
@@ -128,6 +141,7 @@ test('a two-insurer panel completes the manual client, DFS and per-member bindin
   await role(page, 'broker');
   await stage(page, 'Rekonsiliasi data');
   for (const id of ['bekasi', 'tangerang', 'cikarang']) {
+    await section(page, 'location-' + id);
     await page.locator('#match-note-' + id).fill('Cocok dengan konfirmasi klien yang tercatat.');
     await page.getByTestId('match-' + id).click();
   }
@@ -139,6 +153,7 @@ test('a two-insurer panel completes the manual client, DFS and per-member bindin
   const word = await wordDownload;
   expect((await readFile((await word.path())!)).length).toBeGreaterThan(1000);
   expect((await saved(page)).dfsSnapshots).toHaveLength(1);
+  await section(page, 'binding');
   await page.locator('#dispatch-reference').fill('FIKTIF-DISPATCH-PANEL-01');
   await page.locator('#dispatch-recipient').fill('panel@example.invalid');
   await page.locator('#dispatch-time').fill('2026-11-19T11:00');
@@ -200,6 +215,10 @@ test('incomplete client evidence exposes DFS blockers and comparison data remain
     for (const label of ['Bahan renewal', 'Review asuransi', 'Proposal klien', 'Rekonsiliasi data', 'Final review']) {
       await stage(page, label);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `${label} at ${width}px`).toBeLessThanOrEqual(1);
+      if (label === 'Rekonsiliasi data') for (const location of state.locations) {
+        await section(page, 'location-' + location.id);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `${location.id} at ${width}px`).toBeLessThanOrEqual(1);
+      }
     }
     if ([1440, 390, 320].includes(width)) {
       await stage(page, 'Rekonsiliasi data');
@@ -216,6 +235,7 @@ test('source dialogs and keyboard navigation retain focus without recording deci
   await expect(page.getByRole('link', { name: 'Langsung ke workspace' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.locator('#main')).toBeFocused();
+  await section(page, 'sources');
   const sourceButton = page.getByRole('button', { name: 'Lihat dokumen', exact: true }).first();
   await sourceButton.click();
   const source = page.getByRole('dialog', { name: 'Final slip 2026' });
@@ -235,7 +255,7 @@ test('unsent client values disable agreement and role changes reset drafts only 
   await expect(page.getByTestId('client-agree')).toBeDisabled();
   page.once('dialog', dialog => dialog.dismiss());
   await role(page, 'broker');
-  await expect(page.getByLabel('Peran simulasi')).toHaveValue('client');
+  await expect(page.locator('.role-select:visible')).toHaveValue('client');
   await expect(amount).toHaveValue('4300000000.12');
   page.once('dialog', dialog => dialog.accept());
   await role(page, 'broker');

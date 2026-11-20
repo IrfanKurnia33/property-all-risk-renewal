@@ -16,6 +16,8 @@ supabase/.branches/
 .supabase/
 
 # Private research and implementation plans stay local.
+/docs/design-revision-20261120/
+/docs/insead-2027/
 /docs/research/
 /docs/v1-plan/
 

@@ -23,7 +23,7 @@ if(!authenticated && !exitCode){
   exitCode=await run([npm,'run','build'],{...process.env,VITE_DEMO_MODE:'false',VITE_SUPABASE_URL:'http://127.0.0.1:54321',VITE_SUPABASE_PUBLISHABLE_KEY:'sb_publishable_ui_test'});
   if(!exitCode){
     const server=await preview({preview:{host:'127.0.0.1',port:4173,strictPort:true}});
-    try{exitCode=await run([resolve('scripts/playwright.mjs'),'test','tests/login-i18n.spec.ts','--reporter=list']);}
+    try{exitCode=await run([resolve('scripts/playwright.mjs'),'test','tests/login-i18n.spec.ts','tests/design-tabs.spec.ts','--reporter=list']);}
     finally{await server.close();}
   }
 }

@@ -1,4 +1,6 @@
-/* Native form controls and shared dialogs. Workflow layouts use semantic Tailwind utilities. */
+@import "./workspace-chrome.css";
+
+/* Native controls and the few shared layouts used across renewal workspaces. */
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; overflow-wrap: anywhere; }
 button, input, textarea, select { font: inherit; }
@@ -35,6 +37,53 @@ svg { flex-shrink: 0; }
 .text-button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 4px; }
 .text-button .icon { width: 16px; height: 16px; }
 .notice .text-button { color: inherit; }
+
+:root { --workspace-topbar-height: 76px; }
+html { scroll-padding-top: calc(var(--workspace-topbar-height) + 16px); }
+.topbar { position: sticky; top: 0; z-index: 40; height: var(--workspace-topbar-height); flex-wrap: nowrap; }
+.topbar .breadcrumb { min-width: 0; flex: 1 1 0; }
+.topbar > .brand-lockup { flex-shrink: 1; }
+.sidebar { height: 100dvh; overflow-y: auto; overscroll-behavior: contain; align-self: start; z-index: 45; }
+.main-column-stack { min-width: 0; }
+.section-tabs { display: flex; gap: 24px; width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; margin: 0 0 24px; padding: 3px 3px 0; border-bottom: 1px solid var(--rk-color-border-control); scrollbar-width: thin; scroll-padding: 6px; }
+.section-tab { flex: 0 0 auto; min-height: 48px; padding: 10px 2px 12px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--rk-color-text-secondary); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.section-tab[aria-selected=true] { border-bottom-color: var(--rk-color-action-primary); color: var(--rk-color-link); font-weight: 600; }
+.section-tab:hover { color: var(--rk-color-link); }
+.section-tab:focus-visible { outline-offset: -3px; }
+.section-panel { display: grid; min-width: 0; gap: 20px; }
+.section-panel[hidden] { display: none; }
+.section-panel:focus-visible { outline: 3px solid var(--rk-color-focus-ring); outline-offset: 3px; }
+.simulation-control { display: grid; gap: 8px; margin: 12px 0; }
+.simulation-label { margin: 0; font-size: 13px; color: var(--rk-color-text-secondary); }
+.role-select { min-height: 44px; width: 100%; min-width: 0; border: 1px solid var(--rk-color-border-control); border-radius: 6px; padding: 9px 10px; background: var(--rk-color-surface); color: var(--rk-color-text-primary); font-size: 16px; }
+.account-shell { display: grid; grid-template-columns: minmax(0,1fr); }
+.account-sidebar { display: none; position: sticky; top: 0; flex-direction: column; border-right: 1px solid var(--rk-color-border-subtle); background: var(--rk-color-surface); padding: 28px 16px 20px; }
+.account-navigation-current { margin: 20px 0; padding: 12px; border: 1px solid var(--rk-color-border-subtle); border-radius: 6px; background: var(--rk-color-surface-selected); font-size: 14px; font-weight: 500; }
+.account-shell .mobile-brand { display: inline-flex; flex-shrink: 1; }
+.header-breadcrumb { display: none; }
+.mobile-account-content { max-width: 400px; }
+.client-workspace .section-tabs { margin-bottom: 24px; }
+
+@media (min-width: 801px) {
+  .breadcrumb > .brand-lockup, .account-shell .mobile-brand { display: none; }
+  .account-shell { grid-template-columns: 220px minmax(0,1fr); }
+  .account-sidebar { display: flex; }
+  .header-breadcrumb { display: block; }
+}
+@media (min-width: 1101px) {
+  .account-shell { grid-template-columns: 240px minmax(0,1fr); }
+  .context-column { position: sticky; top: calc(var(--workspace-topbar-height) + 24px); max-height: calc(100dvh - var(--workspace-topbar-height) - 48px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 3px; margin: -3px; }
+}
+@media (max-width: 800px) {
+  .topbar .brand-lockup { width: 172px; }
+  .section-tabs { gap: 20px; }
+}
+@media (max-width: 560px) {
+  .next-action > .text-button { flex-basis: 100%; justify-content: flex-start; padding-left: 54px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button, a { transition: none; }
+}
 
 dialog.document-dialog { margin: auto; width: min(760px, calc(100% - 32px)); max-height: calc(100svh - 48px); overflow: auto; padding: 0; border: 1px solid var(--rk-color-border-subtle); border-radius: 10px; color: var(--rk-color-text-primary); background: var(--rk-color-surface); box-shadow: 0 20px 80px color-mix(in srgb, var(--rk-brand-navy) 15%, transparent); }
 dialog::backdrop { background: color-mix(in srgb, var(--rk-brand-navy) 44%, transparent); }

@@ -26,6 +26,7 @@ async function login(page:Page,account:{email:string;password:string}) {
 test('AI preparation preserves source text, resumes completed work and leaves manual decisions unchanged',async({browser})=>{
   test.setTimeout(180_000);
   const fixture=await createHostedFixture(),context=await browser.newContext({permissions:['clipboard-read','clipboard-write']});
+  await context.addInitScript(()=>localStorage.setItem('rekonvia.locale.v1','id_ID'));
   try{
     const page=await context.newPage(),history:AiHistory={batches:[],budget:{attemptsToday:0,limit:40,inFlightUntil:null}};
     const original='FIKTIF — Rate PAR 0.0483%; perluasan banjir harus diperiksa. Wording asli tetap utuh.';
@@ -65,11 +66,13 @@ test('AI preparation preserves source text, resumes completed work and leaves ma
     await login(page,fixture.accounts[0]);
     await page.getByRole('button').filter({hasText:fixture.caseA}).click();
     await expect(page.getByRole('heading',{name:fixture.initial.clientName,exact:true})).toBeVisible();
+    await page.getByTestId('section-tab-sources').click();
     const source=fixture.initial.documents[0],upload=page.locator('#upload-'+source.id);
     await upload.locator('input[type=file]').setInputFiles({name:'fictional-source.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',buffer:bytes});
     await upload.getByRole('button',{name:'Unggah dan finalisasi',exact:true}).click();
     await expect(upload).toHaveCount(0);
     const before=await fixture.read();
+    await page.getByTestId('section-tab-ai').click();
     await page.getByText('Bantuan AI untuk sumber renewal · opsional',{exact:true}).click();
     const workspace=page.locator('[data-ai-workspace]');
     await expect(workspace.getByTestId('ai-refresh')).toBeEnabled();
@@ -113,11 +116,13 @@ test('AI preparation preserves source text, resumes completed work and leaves ma
     await expect(workspace.getByText(/Langkah ini belum menghasilkan saran yang dapat dipakai/)).toBeVisible();
     expect(actualAttempts).toBe(2);
     await expect(workspace.getByTestId('ai-run-step-0')).toHaveCount(0);
+    await page.getByTestId('section-tab-wording').click();
     const manualReview=page.locator('#review-'+getCurrentWording(before).items[0].id);
     await expect(manualReview.getByRole('button',{name:'Simpan review wording',exact:true})).toBeEnabled();
     expect(await fixture.read()).toEqual(before);
     await page.reload();
     await page.getByRole('button').filter({hasText:fixture.caseA}).click();
+    await page.getByTestId('section-tab-ai').click();
     await page.getByText('Bantuan AI untuk sumber renewal · opsional',{exact:true}).click();
     await expect(workspace.getByText(/Langkah ini belum menghasilkan saran yang dapat dipakai/)).toBeVisible();
     const completed=workspace.getByTestId('ai-batches').locator(':scope > details').nth(1);

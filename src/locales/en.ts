@@ -317,6 +317,8 @@ const en: Record<string, string> = {
   "Acknowledgment setiap anggota panel telah dicatat. Data renewal terkunci; sumber, unduhan, dan catatan sesi tetap tersedia.": "Acknowledgment from every panel member has been recorded. Renewal data is locked; sources, downloads, and session notes remain available.",
   "Buka tahap": "Open stage",
   "Opsi quotation aktif": "Active quotation option",
+  "Opsi utama": "Main option",
+  "Alternatif terpisah": "Separate alternative",
   "Memilih opsi lain menyupersesi proposal aktif. Alternatif 100% tidak dijumlahkan.": "Selecting another option supersedes the active proposal. Separate 100% alternatives are not added together.",
   "dari 5": "of 5",
   "Siapkan quotation slip (QS)": "Prepare quotation slip (QS)",
@@ -910,6 +912,21 @@ const en: Record<string, string> = {
   "{0}: menunggu konfirmasi klien untuk periode berjalan, termasuk data yang tetap.": "{0}: awaiting client confirmation for the current period, including unchanged data.",
   "{0}: broker belum mencocokkan bukti klien.": "{0}: the broker has not checked the client evidence.",
   "gambar": "image",
-  "pending": "Pending"
+  "pending": "Pending",
+  "Akun": "Account",
+  "Bahasa": "Language",
+  "Menu akun": "Account menu",
+  "Bagian tahap renewal": "Renewal stage sections",
+  "Bagian proposal klien": "Client proposal sections",
+  "Ringkasan QS": "QS overview",
+  "Sumber dokumen": "Document sources",
+  "Terms & premi": "Terms & premium",
+  "Bantuan AI": "AI assistance",
+  "Akses kasus": "Case access",
+  "Ringkasan panel": "Panel overview",
+  "Catat respons": "Record response",
+  "Data lokasi": "Location data",
+  "Keputusan renewal": "Renewal decisions",
+  "Riwayat tanggapan": "Response history"
 };
 export default en;
