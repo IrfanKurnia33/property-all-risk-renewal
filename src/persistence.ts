@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 import { useRef, useState } from 'react';
 import { applyAction, createInitialCase, isRenewalCase } from './domain.ts';
 import type { Actor, CaseAction, RenewalCase } from './domain.ts';
@@ -86,7 +87,7 @@ export function useRenewalCase() {
   }
 
   function reset(): boolean {
-    if (!window.confirm('Mulai ulang kasus contoh? Progres dan catatan kasus ini akan diganti. Status tur tetap disimpan.')) return false;
+    if (!window.confirm(t('Mulai ulang kasus contoh? Progres dan catatan kasus ini akan diganti. Status tur tetap disimpan.'))) return false;
     const state = createInitialCase();
     const storageError = writeStoredCase(browserStorage(), state);
     if (!storageError) persistedVersion.current = state.lockVersion;

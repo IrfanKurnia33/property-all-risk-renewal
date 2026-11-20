@@ -12,6 +12,14 @@ Source inventory and three-way wording review preserve the prior agreed baseline
 
 The manual five-stage workflow and all three editable Word templates are implemented. Optional broker-only AI source review prepares selected text/page images locally, calls the server-controlled free OpenRouter route and stores suggestions separately for human review. The [AI guide](docs/ai-assistance.md) covers preparation, limits, failures and source handling. Store OPENROUTER_API_KEY only in Supabase Edge Function Secrets, never in a VITE variable.
 
+## Languages
+
+The interface supports **English (United States)** (`en_US`, the default) and **Bahasa Indonesia** (`id_ID`). Use **Language / Bahasa** on the login page or workspace header. The preference stays in this browser under `rekonvia.locale.v1`, survives sign-out and reload, and updates other open tabs. If browser storage is unavailable, selection works for the current session. Changing language preserves unfinished forms and open dialogs.
+
+Navigation, forms, application validation/recovery messages, readiness checks, the tour and AI controls use the selected language. Displayed dates and numbers follow that locale, with Jakarta time and exact decimal precision. Decimal form inputs continue to use a period, as their labels specify. Client data, names, original wording, source excerpts, AI output and document artifacts retain their authored language; selecting a UI language does not translate or rewrite insurance evidence or existing Word templates.
+
+Translations live in `src/locales/`, with Indonesian source copy as the message key and an English dictionary. Keep enum values and persisted case data independent of translated labels. Translate application messages at display time so stored errors and readiness messages can change language without saving the case.
+
 ## Run locally
 
 Use Node.js 24 and install dependencies within this repository:
@@ -71,7 +79,7 @@ npm run test:e2e:install
 npm run test:e2e
 ```
 
-The ordinary browser suite builds the isolated simulation, checks its existing journeys and then restores an authenticated production build in `dist`. It starts preview in the launcher process to avoid the Windows npm-child shutdown problem. Browser downloads and temporary files stay in `.cache/`; no global browser configuration changes are required.
+The ordinary browser suite builds the isolated simulation, checks its existing journeys in Indonesian and bilingual switching, then checks login, broker and client language behavior against deterministic local API responses. These auth UI checks use fictional credentials and make no hosted account changes. The launcher restores an authenticated production build using your normal configuration in `dist`. It starts preview in the launcher process to avoid the Windows npm-child shutdown problem. Browser downloads and temporary files stay in `.cache/`; no global browser configuration changes are required.
 
 Run the stateful hosted acceptance explicitly:
 

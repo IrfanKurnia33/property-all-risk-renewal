@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+
+// Existing workflow assertions exercise the Indonesian locale explicitly.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('rekonvia.locale.v1', 'id_ID'));
+});
 import type { Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { unzipSync } from 'fflate';

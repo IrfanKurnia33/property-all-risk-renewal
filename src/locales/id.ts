@@ -1,0 +1,26 @@
+// Technical values remain stable in stored case data; these are their display labels.
+const id: Record<string, string> = {
+  received: 'Diterima', draft: 'Draft', agreed: 'Disepakati', issued: 'Diterbitkan',
+  unreviewed: 'Belum ditinjau', retain: 'Dipertahankan', accepted: 'Diterima',
+  'rejected-enhancement': 'Enhancement ditolak', 'withdrawal-accepted': 'Penarikan dicatat',
+  followup: 'Perlu follow-up', retained: 'Dipertahankan', enhancement: 'Usulan enhancement',
+  withdrawal: 'Penarikan wording', change: 'Perubahan', pending: 'Menunggu',
+  declined: 'Menolak', conditional: 'Bersyarat', outreach: 'Outreach saja',
+  Occupation: 'Okupasi', Language: 'Bahasa',
+  AI_UNAVAILABLE: 'AI belum tersedia', AI_TIMEOUT: 'Waktu permintaan AI habis',
+  AI_RATE_LIMIT: 'Batas permintaan penyedia tercapai', AI_DAILY_LIMIT: 'Anggaran harian AI habis',
+  AI_IN_FLIGHT: 'Permintaan AI lain masih berjalan', AI_NOT_CONFIGURED: 'Bantuan AI belum dikonfigurasi',
+  AI_INVALID_OUTPUT: 'Hasil AI tidak valid; tinjau sumber manual', AI_OUTPUT_TRUNCATED: 'Hasil AI tidak lengkap',
+  AI_REFUSED: 'Penyedia AI menolak permintaan', AI_INTERRUPTED: 'Permintaan AI terputus',
+  AI_LEASE_EXPIRED: 'Waktu pemrosesan AI berakhir', AI_DATABASE_ERROR: 'Status AI belum dapat disimpan',
+  AI_INPUT_UNSUPPORTED: 'Sumber ini belum didukung oleh penyedia AI',
+  AI_NO_ELIGIBLE_PROVIDER: 'Tidak ada penyedia AI yang sesuai',
+  AI_PRICE_POLICY: 'Penyedia tidak memenuhi ketentuan gratis',
+  AI_PROVIDER_CONFIGURATION: 'Konfigurasi penyedia AI belum sesuai', AI_PROVIDER_LIMIT: 'Batas penyedia AI tercapai',
+  AI_BATCH_LIMIT: 'Pilihan sumber melampaui batas kelompok',
+  INVALID_AI_BATCH: 'Periksa kelompok sumber dan persetujuan pengiriman',
+  INVALID_AI_SECTION: 'Bagian sumber tidak valid', INVALID_AI_TEXT: 'Kutipan sumber tidak valid',
+  INVALID_AI_IMAGE: 'Pratinjau gambar tidak valid', INVALID_AI_IMAGE_SOURCE: 'Sumber gambar tidak sesuai',
+  INVALID_AI_REVIEW: 'Lengkapi keputusan dan catatan tinjauan AI', INVALID_AI_REQUEST: 'Permintaan AI tidak valid',
+};
+export default id;

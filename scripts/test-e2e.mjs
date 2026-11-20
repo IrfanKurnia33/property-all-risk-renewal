@@ -15,8 +15,17 @@ process.env.VITE_DEMO_MODE=authenticated?'false':'true';
 let exitCode=await run([npm,'run','build']);
 if(!exitCode){
   const server=await preview({preview:{host:'127.0.0.1',port:4173,strictPort:true}});
-  try{exitCode=await run([resolve('scripts/playwright.mjs'),'test',...(authenticated?['tests/authenticated.spec.ts','tests/phase4.spec.ts','tests/phase5.spec.ts']:['tests/brand.spec.ts','tests/renewal.spec.ts']),'--reporter=list']);}
+  try{exitCode=await run([resolve('scripts/playwright.mjs'),'test',...(authenticated?['tests/authenticated.spec.ts','tests/phase4.spec.ts','tests/phase5.spec.ts']:['tests/brand.spec.ts','tests/renewal.spec.ts','tests/i18n.spec.ts']),'--reporter=list']);}
   finally{await server.close();}
+}
+if(!authenticated && !exitCode){
+  // Auth UI uses deterministic local responses and never signs in to a hosted account.
+  exitCode=await run([npm,'run','build'],{...process.env,VITE_DEMO_MODE:'false',VITE_SUPABASE_URL:'http://127.0.0.1:54321',VITE_SUPABASE_PUBLISHABLE_KEY:'sb_publishable_ui_test'});
+  if(!exitCode){
+    const server=await preview({preview:{host:'127.0.0.1',port:4173,strictPort:true}});
+    try{exitCode=await run([resolve('scripts/playwright.mjs'),'test','tests/login-i18n.spec.ts','--reporter=list']);}
+    finally{await server.close();}
+  }
 }
 if(original===undefined)delete process.env.VITE_DEMO_MODE;else process.env.VITE_DEMO_MODE=original;
 // Leave dist ready for authenticated deployment even after simulation tests fail.
