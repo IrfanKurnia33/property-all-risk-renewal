@@ -9,6 +9,7 @@ import { assignmentState, createManagedCase, parseCaseAssignment, parseCaseCreat
 import { handleAi } from './ai.ts';
 
 const bucket='renewal-documents';
+const xlsxMime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const origins=new Set(['http://localhost:5173','http://127.0.0.1:5173','http://localhost:4173','http://127.0.0.1:4173','https://property-all-risk-renewal.vercel.app']);
 const url=Deno.env.get('SUPABASE_URL')!;
 const service=createClient(url,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}});
@@ -56,7 +57,10 @@ async function context(caseId:string,userId:string):Promise<{state:RenewalCase;a
     if(!a)throw new ApiError(404,'NOT_FOUND');
   }
   if(!isRenewalCase(c.state))throw new ApiError(500,'INVALID_STORED_CASE');
-  return {state:c.state,actor:{id:userId,role:m.role},workspaceId:c.workspace_id};
+  const state=c.state as RenewalCase;
+  state.scheduleRequired=true;
+  state.scheduleVersions??=[];
+  return {state,actor:{id:userId,role:m.role},workspaceId:c.workspace_id};
 }
 const view=(state:RenewalCase,actor:Actor)=>actor.role==='broker'?{role:'broker',state}:{role:'client',...clientView(state,actor.id)};
 async function readView(state:RenewalCase,actor:Actor) {
@@ -198,13 +202,15 @@ async function handle(request:Request,userId:string) {
     }
   }
   if(parts[2]==='commands' && parts.length===3 && request.method==='POST') {
-    const command=parseCommand(await body(request));if(command.caseId!==caseId)throw new ApiError(422,'CASE_MISMATCH');
+    const command=parseCommand(await body(request,512*1024));if(command.caseId!==caseId)throw new ApiError(422,'CASE_MISMATCH');
     const result=await commit(command,state,actor);return readView(result.state,actor);
   }
   if(parts[2]==='uploads' && parts[3]==='start' && parts.length===4 && request.method==='POST') {
     broker(actor);const input=await body(request);assertKeys(input,['documentVersionId','name','byteSize','mimeType']);
-    if(typeof input.documentVersionId!=='string' || !state.documents.some(d=>d.id===input.documentVersionId && !d.file)
+    const source=typeof input.documentVersionId==='string'?state.documents.find(d=>d.id===input.documentVersionId):undefined;
+    if(typeof input.documentVersionId!=='string' || !source || source.file
       || typeof input.name!=='string' || typeof input.mimeType!=='string' || fileType(input.name)!==input.mimeType
+      || source.type==='schedule' && (input.mimeType!==xlsxMime || !input.name.toLocaleLowerCase().endsWith('.xlsx'))
       || !Number.isSafeInteger(input.byteSize) || Number(input.byteSize)<1 || Number(input.byteSize)>MAX_FILE)throw new ApiError(422,'INVALID_UPLOAD');
     const existing=await service.from('document_versions').select('*').eq('case_id',caseId).eq('source_version_id',input.documentVersionId).maybeSingle();dbError(existing.error);
     let row=existing.data;
@@ -226,6 +232,8 @@ async function handle(request:Request,userId:string) {
     if(input.sha256!==undefined && (typeof input.sha256!=='string' || !/^[a-f0-9]{64}$/.test(input.sha256)))throw new ApiError(422,'INVALID_HASH');
     const {data:doc,error}=await service.from('document_versions').select('*').eq('id',parts[3]).eq('case_id',caseId).eq('created_by',actor.id).maybeSingle();dbError(error);
     if(!doc)throw new ApiError(404,'NOT_FOUND');
+    const source=state.documents.find(item=>item.id===doc.source_version_id);
+    if(source?.type==='schedule' && (doc.mime_type!==xlsxMime || !doc.display_name.toLocaleLowerCase().endsWith('.xlsx')))throw new ApiError(422,'INVALID_SCHEDULE_UPLOAD','Schedule sources must be XLSX files.');
     if(doc.upload_status==='finalized' && input.sha256!==undefined && doc.sha256!==input.sha256)throw new ApiError(422,'UPLOAD_HASH_MISMATCH');
     const command=parseCommand({caseId,expectedVersion:input.expectedVersion,idempotencyKey:input.idempotencyKey,type:'attachEvidence',payload:{documentVersionId:doc.source_version_id,
       file:{id:doc.id,sha256:doc.sha256??'0'.repeat(64),byteSize:doc.byte_size,mimeType:doc.mime_type}}},true);

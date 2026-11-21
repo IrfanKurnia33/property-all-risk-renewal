@@ -6,7 +6,7 @@ import {
   getExportBlockers, getProposalBlockers, getQsBlockers, getSelectedOption, isBindingComplete, isCurrentConfirmation, isRenewalCase,
   LOCAL_ACTORS, sampleClientClarification, sampleClientResponse,
 } from './domain.ts'
-import type { Actor, CaseAction, DocumentVersion, InsurerResponse, RenewalCase, SourceReference } from './domain.ts'
+import type { Actor, CaseAction, DocumentVersion, InsurerResponse, RenewalCase, ScheduleRow, SourceReference } from './domain.ts'
 import {
   act, bindingReadyCase, clientConfirmedCase, dfsReadyCase, exportReadyCase,
   partialResponseCase, proposalReadyCase, quoteReadyCase, recordResponse, TEST_AT,
@@ -56,6 +56,54 @@ test('historical materials allow an early reviewed QS without claiming current c
   assert.equal(exported.revision, state.revision)
   assert.equal(exported.lockVersion, state.lockVersion + 1)
   assert.equal(isRenewalCase(JSON.parse(JSON.stringify(exported))), true)
+})
+
+test('authenticated QS requires a finalized reviewed XLSX and snapshots its row provenance', () => {
+  let state = createInitialCase()
+  state.scheduleRequired = true
+  assert.ok(getQsBlockers(state).some(blocker => blocker.id === 'schedule-required'))
+  const document = {
+    id: 'schedule-source', documentId: 'schedule-doc', version: 1, name: 'Current schedule.xlsx', type: 'schedule' as const,
+    insuranceClass: 'PAR' as const, periodStart: state.terms.periodStart, periodEnd: state.terms.periodEnd,
+    producer: 'Broker-uploaded schedule', optionId: null, status: 'received' as const, fictional: true,
+    note: 'Broker upload; values require review.',
+  }
+  state = act(state, { type: 'addDocument', document })
+  const row: ScheduleRow = {
+    id: 'row-1',
+    source: {
+      sheetName: 'Schedule', rowNumber: 2,
+      cells: Object.fromEntries(['A2', 'B2', 'C2', 'D2', 'E2', 'F2', 'G2', 'H2', 'I2', 'J2', 'K2', 'L2']
+        .map((cell, index) => [['locationName', 'address', 'occupancy', 'sumInsured', 'currency', 'coverage', 'rate', 'rateUnit', 'rateBasis', 'rateApplicability', 'deductible', 'remarks'][index], cell])),
+      formulaCells: [], hidden: false,
+      warnings: ['Rate cell G2 uses Excel percentage formatting; verify the displayed source rate and correct it before saving.'],
+    },
+    imported: {
+      locationName: 'Factory A', address: 'District road', occupancy: 'Manufacturing', sumInsured: '3500000000',
+      currency: 'IDR', coverage: 'Property All Risks', rate: '0.0483', rateUnit: 'percent', rateBasis: 'sum-insured',
+      rateApplicability: 'As stated in insurer quote', deductible: 'IDR 10,000,000 each occurrence', remarks: '',
+    },
+    values: {
+      locationName: 'Factory A', address: 'District road', occupancy: 'Manufacturing', sumInsured: '3500000000',
+      currency: 'IDR', coverage: 'Property All Risks', rate: '0.0483', rateUnit: 'percent', rateBasis: 'sum-insured',
+      rateApplicability: 'As stated in insurer quote', deductible: 'IDR 10,000,000 each occurrence', remarks: '',
+    },
+    warnings: ['Rate cell G2 uses Excel percentage formatting; verify the displayed source rate and correct it before saving.'],
+  }
+  assert.throws(() => act(state, { type: 'saveSchedule', sourceDocumentVersionId: document.id, sourceSha256: 'a'.repeat(64), rows: [row] }), /finalisasi XLSX/)
+  state = act(state, { type: 'attachEvidence', documentVersionId: document.id, file: {
+    id: '00000000-0000-4000-8000-000000000001', sha256: 'a'.repeat(64), byteSize: 1024,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  } })
+  assert.throws(() => act(state, { type: 'saveSchedule', sourceDocumentVersionId: document.id, sourceSha256: 'a'.repeat(64), rows: [row] }), /Baris schedule belum lengkap/)
+  const reviewedRow = { ...row, values: { ...row.values, rate: '4.83' } }
+  state = act(state, { type: 'saveSchedule', sourceDocumentVersionId: document.id, sourceSha256: 'a'.repeat(64), rows: [reviewedRow] })
+  assert.equal(getQsBlockers(state).some(blocker => blocker.id === 'schedule-required'), false)
+  state = quoteReadyCase(state)
+  assert.equal(getCurrentQuote(state)?.schedule?.rows[0]?.values.locationName, 'Factory A')
+  assert.equal(getCurrentQuote(state)?.schedule?.rows[0]?.imported.rate, '0.0483')
+  assert.equal(getCurrentQuote(state)?.schedule?.rows[0]?.values.rate, '4.83')
+  assert.ok(getCurrentQuote(state)?.sourceVersionIds.includes(document.id))
 })
 
 test('portal authority has only broker and client actors; stale writes never overwrite canonical state', () => {

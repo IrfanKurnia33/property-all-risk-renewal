@@ -24,6 +24,7 @@ test('case creation accepts only bounded identifiers, valid periods and explicit
 test('a new case contains explicit placeholders and no fabricated current evidence or prior approval',()=>{
   const state=createManagedCase(parseCaseCreation(input),broker,'2026-11-20T01:00:00.000Z');
   assert.equal(isRenewalCase(state),true);assert.equal(state.id,input.caseId);assert.equal(state.clientName,input.clientName);
+  assert.equal(state.scheduleRequired,true);assert.deepEqual(state.scheduleVersions,[]);
   assert.deepEqual(state.documents,[]);assert.deepEqual(state.wordingRevisions[0].items,[]);
   assert.ok(state.locations.every(l=>!l.confirmation && !l.proposed && l.review==='unreviewed'));
   assert.deepEqual([state.proposals,state.quoteSnapshots,state.insurerResponses,state.agreements,state.instructions,state.submissions],Array(6).fill([]));

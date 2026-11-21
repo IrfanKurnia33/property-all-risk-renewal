@@ -1,4 +1,4 @@
-import { currentDecision, getActiveProposal, getSelectedOption, getCurrentWording, getProposalBlockers, isCurrentConfirmation, isBindingComplete } from './domain.ts';
+import { currentDecision, getActiveProposal, getSelectedOption, getCurrentWording, getCurrentQuote, getProposalBlockers, isCurrentConfirmation, isBindingComplete } from './domain.ts';
 import type { CaseAction, ProposalSnapshot, RenewalCase } from './domain.ts';
 
 export class ApiError extends Error {
@@ -12,6 +12,7 @@ export const caseIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 const payloadKeys: Record<string, string[]> = {
   addDocument: ['document'], annotateDocument: ['documentVersionId','note'], reviseTerms: ['terms','note'],
   reviseWording: ['items','note'], reviewWording: ['itemId','disposition','note','question'], selectOption: ['optionId'],
+  saveSchedule: ['sourceDocumentVersionId','sourceSha256','rows'],
   prepareQuote: [], recordInsurerResponse: ['response'], publishProposal: [], submitLocations: ['proposalId','locations'],
   reviewLocation: ['locationId','result','note'], setCheck: ['check','checked'], clientAgree: ['proposalId','evidence'],
   clientInstruct: ['proposalId','evidence'], issueDfs: [], requestBinding: ['dfsId','dispatch'],
@@ -65,13 +66,15 @@ export function clientProposal(proposal: ProposalSnapshot) {
 }
 export function clientView(state: RenewalCase, actorId: string) {
   const proposal=getActiveProposal(state);
-  const current=!!proposal && proposal.optionId===state.selectedOptionId && proposal.revision===state.revision;
+  const quote=getCurrentQuote(state);
+  const current=!!proposal && proposal.optionId===state.selectedOptionId && proposal.revision===state.revision && (!state.scheduleRequired || !!quote);
   const locked=isBindingComplete(state);
   const confirmed=state.locations.every(l=>l.proposed && isCurrentConfirmation(state,l) && !!l.proposed.address.trim());
   const panelReady=!getProposalBlockers(state).length;
   const canAgree=current && confirmed && panelReady && !locked;
   const canSubmitLocations=!!proposal && proposal.optionId===state.selectedOptionId
-    && proposal.terms.periodStart===state.terms.periodStart && proposal.terms.periodEnd===state.terms.periodEnd && !locked;
+    && proposal.terms.periodStart===state.terms.periodStart && proposal.terms.periodEnd===state.terms.periodEnd
+    && (!state.scheduleRequired || !!quote) && !locked;
   return {
     caseId:state.id, clientName:state.clientName, lockVersion:state.lockVersion, fictional:state.fictional,
     proposal:proposal ? clientProposal(proposal) : null, proposalCurrent:current,
@@ -96,8 +99,21 @@ export function clientView(state: RenewalCase, actorId: string) {
 export function requiredSourceIds(state: RenewalCase, action: CaseAction): string[] {
   const ids=new Set<string>();
   const add=(ref: {documentVersionId:string}|null)=>{ if(ref) ids.add(ref.documentVersionId); };
+  if(action.type==='saveSchedule') ids.add(action.sourceDocumentVersionId);
   if (['prepareQuote','publishProposal','issueDfs','recordExport','requestBinding'].includes(action.type)) {
     for(const w of getCurrentWording(state).items) { add(w.priorSource); add(w.outgoingSource); add(w.replySource); }
+  }
+  if(action.type==='prepareQuote') {
+    const schedule=state.scheduleVersions?.findLast(item=>{
+      const source=state.documents.find(document=>document.id===item.sourceDocumentVersionId);
+      return source?.periodStart===state.terms.periodStart && source.periodEnd===state.terms.periodEnd;
+    });
+    if(schedule) ids.add(schedule.sourceDocumentVersionId);
+  } else if(['publishProposal','issueDfs','recordExport','requestBinding'].includes(action.type)) {
+    const quote=action.type==='recordExport' && action.kind==='QS'
+      ? state.quoteSnapshots.find(item=>item.id===action.snapshotId)
+      : getCurrentQuote(state);
+    if(quote?.schedule) ids.add(quote.schedule.sourceDocumentVersionId);
   }
   if (['publishProposal','issueDfs','recordExport','requestBinding'].includes(action.type)) {
     const option=getSelectedOption(state);

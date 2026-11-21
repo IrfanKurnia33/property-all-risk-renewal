@@ -49,3 +49,11 @@ test('client readiness distinguishes confirmation, consent and instruction, incl
   state=act(state,{type:'submitLocations',proposalId,locations:locations.map(l=>({...l,evidence:'Updated client evidence'}))},'client');
   assert.equal(clientView(state,'client-demo').canInstruct,false);assert.equal(clientView(state,'client-demo').agreementCurrent,false);
 });
+test('authenticated client actions stay blocked until the proposal is backed by a reviewed schedule',()=>{
+  const state=proposalReadyCase();
+  state.scheduleRequired=true;
+  const view=clientView(state,'client-demo');
+  assert.equal(view.proposalCurrent,false);
+  assert.equal(view.canSubmitLocations,false);
+  assert.equal(view.canAgree,false);
+});

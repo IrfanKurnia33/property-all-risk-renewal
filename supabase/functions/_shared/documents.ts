@@ -3,7 +3,7 @@ import {
   getActiveProposal, getCurrentDfs,
   getCurrentQuote, getExportBlockers, getProposalBlockers, getQsBlockers, isRenewalCase,
 } from './domain.ts';
-import type { RenewalCase, SourceReference, Terms, WordingItem } from './domain.ts';
+import type { RenewalCase, ScheduleRowData, ScheduleVersion, SourceReference, Terms, WordingItem } from './domain.ts';
 import { clientProposal } from './api-contract.ts';
 import { addDecimals, calculatePremium, formatDecimal, PREMIUM_ROUNDING } from './decimal.ts';
 import type { Money } from './decimal.ts';
@@ -41,8 +41,33 @@ function termsContent(terms: Terms): (Paragraph | Table)[] {
         line.recordedPremium ? money(line.recordedPremium) : 'Belum tercatat',
       ]),
     ]),
-    paragraph(`Total ilustrasi: ${money({ amount: addDecimals(calculated.flatMap(value => value ? [value.amount] : [])), currency: terms.currency })}. ${PREMIUM_ROUNDING}`),
-    paragraph('Ilustrasi dan premi tercatat insurer disimpan terpisah. Rate saja tidak menetapkan cover atau premi yang ditagih. Pajak dan biaya tidak dihitung.'),
+    paragraph(`Gross premium illustration (no client discount applied): ${money({ amount: addDecimals(calculated.flatMap(value => value ? [value.amount] : [])), currency: terms.currency })}. ${PREMIUM_ROUNDING}`),
+    paragraph('Calculated gross premium and insurer-recorded premium are separate. No client discount is included. Rate alone does not establish coverage or charged premium. Taxes and fees are not calculated.'),
+  ];
+}
+
+const scheduleFields: [keyof ScheduleRowData, string][] = [
+  ['locationName', 'Location name'], ['address', 'Address'], ['occupancy', 'Occupancy'],
+  ['sumInsured', 'Sum insured'], ['currency', 'Currency'], ['coverage', 'Coverage / peril'],
+  ['rate', 'Rate'], ['rateUnit', 'Rate unit'], ['rateBasis', 'Rate basis'],
+  ['rateApplicability', 'Rate applicability'], ['deductible', 'Deductible'], ['remarks', 'Remarks'],
+];
+function reviewedScheduleContent(state: RenewalCase, schedule: ScheduleVersion): (Paragraph | Table)[] {
+  const source = state.documents.find(document => document.id === schedule.sourceDocumentVersionId)!;
+  return [
+    paragraph(`Broker-reviewed schedule v${schedule.version} · period ${schedule.periodStart} to ${schedule.periodEnd}\nSource: ${source.name} · SHA-256 ${schedule.sourceSha256}\nReviewed: ${schedule.reviewedAt} by ${schedule.reviewedBy}`),
+    ...schedule.rows.flatMap((row, index) => [
+      paragraph(`${index + 1}. ${row.values.locationName} · XLSX sheet "${row.source.sheetName}" · row ${row.source.rowNumber}`),
+      table([
+        ['Field', 'Imported source value', 'Broker-reviewed value', 'Source cell'],
+        ...scheduleFields.map(([field, label]) => [
+          label, row.imported[field] || 'Not imported',
+          row.values[field] || '—', row.source.cells[field] ?? 'Not mapped',
+        ]),
+      ]),
+      ...(row.warnings.length ? [paragraph(`Review warnings: ${row.warnings.join('; ')}`)] : []),
+    ]),
+    paragraph('This schedule is broker-reviewed source material, not client confirmation. Occupancy has not been confirmed through the current client location flow.'),
   ];
 }
 
@@ -167,8 +192,10 @@ export function buildQuoteDocument(state: RenewalCase): Document {
   return renderDocument(state, 'QS', [
     paragraph(`Snapshot QS: ${quote.id}\nOpsi: ${quote.optionId}\nMaterial revision: ${quote.materialRevision}\nWording version: ${quote.wordingVersion}\nDisiapkan: ${quote.at} oleh ${quote.recordedBy}`),
     heading('1. Schedule untuk quotation'),
-    table([['Lokasi', 'Alamat', 'Sum insured', 'Status periode berjalan'], ...quote.locations.map(location => [location.values.name, location.values.address, money(location.values.sumInsured), location.currentConfirmed ? 'Dikonfirmasi klien' : 'Historis / belum dikonfirmasi klien'])]),
-    paragraph('Data historis dapat digunakan untuk QS. Data ini tetap memerlukan konfirmasi klien sebelum DFS.'),
+    ...(quote.schedule ? reviewedScheduleContent(state, quote.schedule) : [
+      table([['Lokasi', 'Alamat', 'Sum insured', 'Status periode berjalan'], ...quote.locations.map(location => [location.values.name, location.values.address, money(location.values.sumInsured), location.currentConfirmed ? 'Dikonfirmasi klien' : 'Historis / belum dikonfirmasi klien'])]),
+      paragraph('Data historis dapat digunakan untuk QS. Data ini tetap memerlukan konfirmasi klien sebelum DFS.'),
+    ]),
     heading('2. Terms usulan'), ...termsContent(quote.terms),
     heading('3. Review wording tiga arah'), ...wordingContent(quote.wording),
     heading('4. Versi sumber'), ...sourcesContent(state, quote.sourceVersionIds),

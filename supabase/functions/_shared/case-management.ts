@@ -63,7 +63,7 @@ export function createManagedCase(input: CaseCreation, actorId: string, at=new D
     deductible:placeholder,additionalCoverage:placeholder,lossHistory:'Belum diperoleh; tidak berarti nihil klaim.',
     premiumLines:[{id:'par',peril:'PAR',included:true,basis:{amount:addDecimals(input.historicalLocations.map(l=>l.sumInsured.amount)),currency:'IDR'},
       rate:{value:'0',unit:'percent',basis:'sum-insured',peril:'PAR'},recordedPremium:null}]};
-  const state: RenewalCase={schemaVersion:2,id:input.caseId,clientName:input.clientName,revision:1,lockVersion:0,insuranceClass:'PAR',fictional:true,
+  const state: RenewalCase={schemaVersion:2,id:input.caseId,clientName:input.clientName,revision:1,lockVersion:0,insuranceClass:'PAR',fictional:true,scheduleRequired:true,scheduleVersions:[],
     priorTerms:{...structuredClone(terms),periodStart:input.priorPeriodStart,periodEnd:input.priorPeriodEnd},
     standardTerms:structuredClone(terms),terms:structuredClone(terms),originalClauses:[],
     locations:input.historicalLocations.map((prior,i)=>({id:'location-'+(i+1),prior:structuredClone(prior),

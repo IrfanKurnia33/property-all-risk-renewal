@@ -48,9 +48,27 @@ export interface RenewalLocation {
 }
 export interface ClientLocationInput extends LocationValues { locationId: string; confirmed: boolean; evidence: string }
 export interface LocationSubmission { id: string; proposalId: string; revision: number; recordedBy: string; at: string; locations: ClientLocationInput[] }
+export interface ScheduleRowData {
+  locationName: string; address: string; occupancy: string; sumInsured: string; currency: string
+  coverage: string; rate: string; rateUnit: string; rateBasis: string; rateApplicability: string
+  deductible: string; remarks: string
+}
+export type ScheduleField = keyof ScheduleRowData
+export interface ScheduleRow {
+  id: string
+  source: { sheetName: string; rowNumber: number; cells: Partial<Record<ScheduleField, string>>; formulaCells: string[]; hidden: boolean; warnings: string[] }
+  imported: ScheduleRowData
+  values: ScheduleRowData
+  warnings: string[]
+}
+export interface ScheduleVersion {
+  id: string; version: number; sourceDocumentVersionId: string; sourceSha256: string
+  periodStart: string; periodEnd: string; reviewedAt: string; reviewedBy: string; rows: ScheduleRow[]
+}
 export interface QuoteSnapshot {
   id: string; optionId: string; materialRevision: number; wordingVersion: number; at: string; recordedBy: string
   terms: Terms; locations: { id: string; values: LocationValues; currentConfirmed: boolean }[]
+  schedule?: ScheduleVersion
   wording: WordingItem[]; sourceVersionIds: string[]
 }
 export interface ProposalSnapshot {
@@ -74,7 +92,8 @@ export interface BindingRequest { id: string; revision: number; dfsId: string; p
 export interface BindingAcknowledgment { id: string; requestId: string; insurerId: string; revision: number; at: string; recordedBy: string; externalRespondent: string; evidence: SourceReference }
 export interface RenewalCase {
   schemaVersion: 2; id: string; clientName: string; revision: number; lockVersion: number
-  insuranceClass: 'PAR'; fictional: boolean; priorTerms: Terms; standardTerms: Terms
+  insuranceClass: 'PAR'; fictional: boolean; scheduleRequired?: boolean; scheduleVersions?: ScheduleVersion[]
+  priorTerms: Terms; standardTerms: Terms
   terms: Terms; originalClauses: string[]; locations: RenewalLocation[]; documents: DocumentVersion[]
   options: QuotationOption[]; selectedOptionId: string; wordingRevisions: WordingRevision[]; termsRevisions: TermsRevision[]
   insurerResponses: InsurerResponse[]; quoteSnapshots: QuoteSnapshot[]; proposals: ProposalSnapshot[]; activeProposalId: string | null
@@ -91,6 +110,7 @@ export type CaseAction =
   | { type: 'reviseWording'; items: WordingItem[]; note: string }
   | { type: 'reviewWording'; itemId: string; disposition: WordingItem['disposition']; note: string; question: string }
   | { type: 'selectOption'; optionId: string }
+  | { type: 'saveSchedule'; sourceDocumentVersionId: string; sourceSha256: string; rows: ScheduleRow[] }
   | { type: 'prepareQuote' }
   | { type: 'recordInsurerResponse'; response: Omit<InsurerResponse, 'id' | 'recordedBy' | 'recordedAt'> }
   | { type: 'publishProposal' }
@@ -143,6 +163,52 @@ function validDocument(v: unknown): v is DocumentVersion {
     && v.fictional === true && stamp(v.createdAt) && filled(v.recordedBy) && txt(v.note)
     && (v.file === undefined || validEvidenceFile(v.file))
 }
+const scheduleFields: ScheduleField[] = ['locationName', 'address', 'occupancy', 'sumInsured', 'currency', 'coverage', 'rate', 'rateUnit', 'rateBasis', 'rateApplicability', 'deductible', 'remarks']
+export function getScheduleRowIssues(data: ScheduleRowData, currency: string, rateNeedsCorrection = false): string[] {
+  const issues: string[] = []
+  if (!filled(data.locationName)) issues.push('Location name is required.')
+  if (!filled(data.address)) issues.push('Address is required.')
+  if (!filled(data.occupancy)) issues.push('Occupancy is required.')
+  if (!isDecimal(data.sumInsured) || !/[1-9]/.test(data.sumInsured)) issues.push('Sum insured must be a positive decimal.')
+  if (data.currency !== currency) issues.push('Currency must match the terms currency.')
+  if (!filled(data.coverage)) issues.push('Coverage or peril is required.')
+  if (!isDecimal(data.rate)) issues.push('Rate must be a non-negative decimal.')
+  if (rateNeedsCorrection) issues.push('Rate uses Excel percentage formatting; verify the displayed source rate and correct it before saving.')
+  if (!['percent', 'per-mille'].includes(data.rateUnit)) issues.push('Select the explicit rate unit.')
+  if (!filled(data.rateBasis)) issues.push('Rate basis is required.')
+  if (!filled(data.rateApplicability)) issues.push('Rate applicability is required.')
+  if (!filled(data.deductible)) issues.push('Deductible is required.')
+  return issues
+}
+function validScheduleData(v: unknown, currency: string, complete: boolean): v is ScheduleRowData {
+  if (!rec(v) || !scheduleFields.every(key => txt(v[key]))) return false
+  const data = v as unknown as ScheduleRowData
+  if (!complete) return true
+  return validMoney({ amount: data.sumInsured, currency: data.currency }) && data.currency === currency
+    && getScheduleRowIssues(data, currency).length === 0
+}
+function validScheduleRow(v: unknown, currency: string): v is ScheduleRow {
+  if (!rec(v) || !filled(v.id) || !rec(v.source) || !filled(v.source.sheetName)
+    || !integer(v.source.rowNumber) || v.source.rowNumber < 1 || !rec(v.source.cells)
+    || !Object.entries(v.source.cells).every(([key, cell]) => scheduleFields.includes(key as ScheduleField) && filled(cell))
+    || !list(v.source.formulaCells) || !v.source.formulaCells.every(filled) || typeof v.source.hidden !== 'boolean'
+    || !list(v.source.warnings) || !v.source.warnings.every(txt) || !validScheduleData(v.imported, currency, false)
+    || !validScheduleData(v.values, currency, true) || !list(v.warnings) || !v.warnings.every(txt)) return false
+  const percentageFormatted = [...v.source.warnings, ...v.warnings].some(warning => warning.startsWith('Rate cell ') && warning.includes('uses Excel percentage formatting;'))
+  return !(percentageFormatted && v.values.rate === v.imported.rate)
+}
+function validScheduleVersion(v: unknown, state: RenewalCase): v is ScheduleVersion {
+  if (!rec(v) || !filled(v.id) || !integer(v.version) || v.version < 1 || !filled(v.sourceDocumentVersionId)
+    || typeof v.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(v.sourceSha256)
+    || !date(v.periodStart) || !date(v.periodEnd) || v.periodStart > v.periodEnd
+    || !stamp(v.reviewedAt) || !filled(v.reviewedBy) || !list(v.rows) || !v.rows.length || v.rows.length > 200
+    || !unique(v.rows as { id: string }[]) || !v.rows.every(row => validScheduleRow(row, state.terms.currency))) return false
+  const source = state.documents.find(document => document.id === v.sourceDocumentVersionId)
+  return !!source && source.type === 'schedule' && source.status === 'received'
+    && source.periodStart === v.periodStart && source.periodEnd === v.periodEnd
+    && source.file?.sha256 === v.sourceSha256
+    && source.file.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+}
 function validEvidenceFile(v: unknown): v is EvidenceFile {
   return rec(v) && typeof v.id === 'string' && /^[a-f0-9-]{36}$/i.test(v.id)
     && typeof v.sha256 === 'string' && /^[a-f0-9]{64}$/.test(v.sha256)
@@ -187,7 +253,14 @@ export function getCurrentWording(state: RenewalCase): WordingRevision {
 }
 export function getCurrentQuote(state: RenewalCase): QuoteSnapshot | undefined {
   const option = getSelectedOption(state)
-  return state.quoteSnapshots.findLast(q => q.optionId === option.id && q.materialRevision === option.materialRevision && q.wordingVersion === option.wordingVersion)
+  const quote = state.quoteSnapshots.findLast(q => q.optionId === option.id && q.materialRevision === option.materialRevision && q.wordingVersion === option.wordingVersion)
+  return state.scheduleRequired && !quote?.schedule ? undefined : quote
+}
+export function getCurrentSchedule(state: RenewalCase): ScheduleVersion | undefined {
+  return (state.scheduleVersions ?? []).findLast(schedule => {
+    const source = state.documents.find(document => document.id === schedule.sourceDocumentVersionId)
+    return source?.periodStart === state.terms.periodStart && source.periodEnd === state.terms.periodEnd
+  })
 }
 export function getActiveProposal(state: RenewalCase): ProposalSnapshot | undefined { return state.proposals.find(p => p.id === state.activeProposalId) }
 export function isCurrentConfirmation(state: RenewalCase, location: RenewalLocation): boolean {
@@ -218,6 +291,7 @@ export function getCurrentBindingRequest(state: RenewalCase): BindingRequest | u
 }
 export function getQsBlockers(state: RenewalCase): Blocker[] {
   const blockers: Blocker[] = []
+  if (state.scheduleRequired && !getCurrentSchedule(state)) blockers.push({ id: 'schedule-required', label: 'Unggah, tinjau, dan simpan schedule XLSX untuk periode renewal ini.', stage: 'materials' })
   const wording = getCurrentWording(state)
   if (!wording?.items.length) blockers.push({ id: 'wording-missing', label: 'Wording QS dan sumbernya belum diidentifikasi.', stage: 'materials' })
   for (const item of wording?.items ?? []) {
@@ -339,6 +413,30 @@ export function applyAction(state: RenewalCase, actor: Actor, action: CaseAction
       label = 'Broker mencatat versi sumber ' + doc.name + '.'
       break
     }
+    case 'saveSchedule': {
+      const source = next.documents.find(document => document.id === action.sourceDocumentVersionId)
+      ensure(source?.type === 'schedule' && source.status === 'received' && source.file
+        && source.file.sha256 === action.sourceSha256
+        && source.file.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        && !(next.scheduleVersions ?? []).some(schedule => schedule.sourceDocumentVersionId === source.id),
+      'Unggah dan finalisasi XLSX schedule baru sebelum meninjau versi ini.')
+      const schedule: ScheduleVersion = {
+        id: 'schedule-' + ((next.scheduleVersions ?? []).length + 1),
+        version: (next.scheduleVersions ?? []).length + 1,
+        sourceDocumentVersionId: source.id,
+        sourceSha256: action.sourceSha256,
+        periodStart: source.periodStart,
+        periodEnd: source.periodEnd,
+        reviewedAt: at,
+        reviewedBy: actor.id,
+        rows: structuredClone(action.rows),
+      }
+      ensure(validScheduleVersion(schedule, next), 'Baris schedule belum lengkap atau tidak valid. Periksa nilai, mata uang, rate, dan unit.')
+      next.scheduleVersions = [...(next.scheduleVersions ?? []), schedule]
+      materialChange(next, true)
+      label = 'Broker meninjau dan menyimpan schedule versi ' + schedule.version + '.'
+      break
+    }
     case 'annotateDocument': {
       ensure(txt(action.note), 'Catatan dokumen tidak valid.')
       const doc = next.documents.find(d => d.id === action.documentVersionId)
@@ -400,7 +498,8 @@ export function applyAction(state: RenewalCase, actor: Actor, action: CaseAction
     case 'prepareQuote':
       ensure(!getQsBlockers(state).length, 'QS belum siap: ' + getQsBlockers(state)[0]?.label)
       ensure(!getCurrentQuote(state), 'QS versi ini sudah tersedia. Ekspor snapshot yang sama.')
-      next.quoteSnapshots.push({ id: 'qs-' + (state.quoteSnapshots.length + 1), optionId: option.id, materialRevision: option.materialRevision, wordingVersion: option.wordingVersion, at, recordedBy: actor.id, terms: structuredClone(state.terms), locations: currentRiskSnapshot(state), wording: structuredClone(getCurrentWording(state).items), sourceVersionIds: [...new Set(getCurrentWording(state).items.flatMap(i => [i.priorSource?.documentVersionId, i.outgoingSource.documentVersionId, i.replySource?.documentVersionId]).filter((s): s is string => !!s))] })
+      const schedule = getCurrentSchedule(state)
+      next.quoteSnapshots.push({ id: 'qs-' + (state.quoteSnapshots.length + 1), optionId: option.id, materialRevision: option.materialRevision, wordingVersion: option.wordingVersion, at, recordedBy: actor.id, terms: structuredClone(state.terms), locations: currentRiskSnapshot(state), ...(schedule ? { schedule: structuredClone(schedule) } : {}), wording: structuredClone(getCurrentWording(state).items), sourceVersionIds: [...new Set([...getCurrentWording(state).items.flatMap(i => [i.priorSource?.documentVersionId, i.outgoingSource.documentVersionId, i.replySource?.documentVersionId]), schedule?.sourceDocumentVersionId].filter((s): s is string => !!s))] })
       label = 'QS disiapkan; data historis diberi label belum dikonfirmasi.'
       break
     case 'recordInsurerResponse': {
@@ -545,6 +644,8 @@ export function isRenewalCase(value: unknown): value is RenewalCase {
   try {
     if (!rec(value) || value.schemaVersion !== 2 || !filled(value.id) || !filled(value.clientName) || value.insuranceClass !== 'PAR'
       || value.fictional !== true || !integer(value.revision) || value.revision < 1 || !integer(value.lockVersion)
+      || (value.scheduleRequired !== undefined && typeof value.scheduleRequired !== 'boolean')
+      || (value.scheduleVersions !== undefined && !list(value.scheduleVersions))
       || !validTerms(value.terms) || !validTerms(value.priorTerms) || !validTerms(value.standardTerms) || !txt(value.notes)
       || !list(value.originalClauses) || !value.originalClauses.every(filled) || !rec(value.checks)
       || !Object.keys(BROKER_CHECKS).every(k => typeof (value.checks as Record<string, unknown>)[k] === 'boolean')
@@ -559,6 +660,10 @@ export function isRenewalCase(value: unknown): value is RenewalCase {
     const sourcesExist = (ids: unknown) => list(ids) && ids.every(id => state.documents.some(d => d.id === id))
     if (!state.documents.every(d => validDocument(d) && (d.optionId === null || state.options.some(o => o.id === d.optionId)))) return false
     if (new Set(state.documents.map(d => d.documentId + ':' + d.version)).size !== state.documents.length) return false
+    const schedules = state.scheduleVersions ?? []
+    if (!schedules.every((schedule, index) => validScheduleVersion(schedule, state)
+      && schedule.version === index + 1 && schedule.id === 'schedule-' + (index + 1))
+      || new Set(schedules.map(schedule => schedule.sourceDocumentVersionId)).size !== schedules.length) return false
     if (!state.options.every(o => filled(o.id) && filled(o.name) && validTerms(o.terms) && o.terms.currency === state.terms.currency && revision(o.materialRevision) && integer(o.wordingVersion) && o.wordingVersion >= 1)) return false
     const selected = getSelectedOption(state)
     if (!selected || !equal(selected.terms, state.terms)) return false
@@ -586,9 +691,10 @@ export function isRenewalCase(value: unknown): value is RenewalCase {
     const sourceIds = (wording: WordingItem[]) => [...new Set(wording.flatMap(i => [i.priorSource?.documentVersionId, i.outgoingSource.documentVersionId, i.replySource?.documentVersionId]).filter((id): id is string => !!id))].sort()
     if (!state.quoteSnapshots.every(q => rec(q) && state.options.some(o => o.id === q.optionId) && revision(q.materialRevision) && integer(q.wordingVersion) && q.wordingVersion > 0 && stamp(q.at) && filled(q.recordedBy)
       && validTerms(q.terms) && locations(q.locations) && list(q.wording) && q.wording.length > 0
+      && (q.schedule === undefined || validScheduleVersion(q.schedule, state))
       && state.wordingRevisions.some(w => w.optionId === q.optionId && w.version === q.wordingVersion && equal(w.items, q.wording))
       && q.wording.every(i => validWording(i, state, q.optionId, false)) && sourcesExist(q.sourceVersionIds)
-      && equal([...q.sourceVersionIds].sort(), sourceIds(q.wording)))) return false
+      && equal([...q.sourceVersionIds].sort(), [...new Set([...sourceIds(q.wording), q.schedule?.sourceDocumentVersionId].filter((id): id is string => !!id))].sort()))) return false
     if (!state.insurerResponses.every(r => validResponse(r, state))) return false
     if (!state.proposals.every(p => rec(p) && integer(p.version) && p.version > 0 && state.options.some(o => o.id === p.optionId) && revision(p.revision) && revision(p.materialRevision)
       && integer(p.wordingVersion) && p.wordingVersion > 0 && stamp(p.at) && filled(p.publishedBy) && validTerms(p.terms) && locations(p.locations)
@@ -650,7 +756,7 @@ export function createInitialCase(): RenewalCase {
     priorSource: ref('prior-v1', text, 'Klausul ' + (i + 1)), outgoingSource: ref('qs-source-' + optionId, text, 'Klausul ' + (i + 1)), replySource: null,
     direction: 'retained', disposition: 'unreviewed', reviewNote: '', question: '' }))
   return {
-    schemaVersion: 2, id: 'PAR-2027-014', clientName: 'PT Arunika Manufaktur Indonesia', revision: 1, lockVersion: 0, insuranceClass: 'PAR', fictional: true,
+    schemaVersion: 2, id: 'PAR-2027-014', clientName: 'PT Arunika Manufaktur Indonesia', revision: 1, lockVersion: 0, insuranceClass: 'PAR', fictional: true, scheduleRequired: false, scheduleVersions: [],
     priorTerms, standardTerms: structuredClone(terms), terms: structuredClone(terms), originalClauses: clauses,
     locations: [
       { id: 'bekasi', prior: { name: 'Pabrik Bekasi', address: 'Jl. Industri Raya No. 18, Bekasi, Jawa Barat', sumInsured: money('3500000000') } },

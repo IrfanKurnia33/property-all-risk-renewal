@@ -8,8 +8,8 @@ export function FileControls({document,upload,download,busy}:{document:DocumentV
   if(document.file)return <div className="max-w-md space-y-2 text-sm"><p className="text-status-confirmed-fg">{t("Berkas tersimpan ·")}{' '}{formatNumber((document.file.byteSize/1024).toFixed(1))} {t("KiB")}</p><p className="break-all text-xs text-text-secondary">{t("SHA-256:")}{' '}{document.file.sha256}</p><button type="button" className="text-button" onClick={()=>void download(document.file!.id)} disabled={busy}>{t("Unduh berkas sumber")}</button></div>;
   return <form id={id} className="max-w-md space-y-2" onSubmit={async e=>{e.preventDefault();if(file)await upload(document.id,file);}}>
     <label htmlFor={id+'-file'}>{t("Berkas untuk")}{' '}{document.id}</label>
-    <input id={id+'-file'} type="file" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png,.webp" required disabled={busy} onChange={e=>setFile(e.target.files?.[0]??null)} />
-    <p className="text-xs text-text-secondary">{t("PDF, DOCX, XLSX atau foto · maksimum 10 MiB · data fiktif")}</p>
+    <input id={id+'-file'} type="file" accept={document.type==='schedule'?'.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'.pdf,.docx,.xlsx,.jpg,.jpeg,.png,.webp'} required disabled={busy} onChange={e=>setFile(e.target.files?.[0]??null)} />
+    <p className="text-xs text-text-secondary">{t(document.type==='schedule'?"XLSX only · maximum 10 MiB":"PDF, DOCX, XLSX atau foto · maksimum 10 MiB · data fiktif")}</p>
     <button type="submit" className="btn min-h-11 rounded-md border border-border-control bg-surface px-4 py-2 text-sm disabled:opacity-50" disabled={busy || !file}>{t("Unggah dan finalisasi")}</button>
   </form>;
 }

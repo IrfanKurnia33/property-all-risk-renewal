@@ -5,7 +5,7 @@ import {
   applyAction, BROKER_CHECKS, createInitialCase, getActiveProposal, getBindingBlockers, getCurrentQuote,
   getCurrentWording, getExportBlockers, isRenewalCase, LOCAL_ACTORS, sampleClientResponse,
 } from './domain.ts';
-import type { CaseAction, CheckKey, RenewalCase, Role } from './domain.ts';
+import type { CaseAction, CheckKey, RenewalCase, Role, ScheduleRow } from './domain.ts';
 import {
   buildQuoteDocument, buildRenewalDocument, buildProposalDocument, buildSessionSummary, createQuoteBlob, createRenewalBlob, createProposalBlob,
   exportQuoteDocx, exportRenewalDocx, exportProposalDocx, exportSessionSummary,
@@ -32,6 +32,37 @@ function quoteCase(withChanges = false): RenewalCase {
       direction: 'enhancement', disposition: 'rejected-enhancement', reviewNote: 'Rejected new enhancement, not withdrawn existing cover.', question: '' });
     state = act(state, { type: 'reviseWording', items, note: 'Record separate three-way comparison decisions.' });
   }
+  return act(state, { type: 'prepareQuote' });
+}
+
+function scheduleQuoteCase(): RenewalCase {
+  let state = reviewedCase();
+  state.scheduleRequired = true;
+  const document = {
+    id: 'schedule-source', documentId: 'schedule-doc', version: 1, name: 'Current schedule.xlsx', type: 'schedule' as const,
+    insuranceClass: 'PAR' as const, periodStart: state.terms.periodStart, periodEnd: state.terms.periodEnd,
+    producer: 'Broker-uploaded schedule', optionId: null, status: 'received' as const, fictional: true,
+    note: 'Broker-uploaded XLSX; values require review.',
+  };
+  state = act(state, { type: 'addDocument', document });
+  const fields: ScheduleRow['source']['cells'] = Object.fromEntries(
+    ['locationName', 'address', 'occupancy', 'sumInsured', 'currency', 'coverage', 'rate', 'rateUnit', 'rateBasis', 'rateApplicability', 'deductible', 'remarks']
+      .map((field, index) => [field, `${String.fromCharCode(65 + index)}2`]),
+  );
+  const data = {
+    locationName: 'Factory A', address: 'District road', occupancy: 'Manufacturing', sumInsured: '3500000000',
+    currency: 'IDR', coverage: 'Property All Risks', rate: '0.0483', rateUnit: 'percent', rateBasis: 'sum-insured',
+    rateApplicability: 'As stated in insurer quote', deductible: 'IDR 10,000,000 each occurrence', remarks: 'Broker checked source row.',
+  };
+  const row: ScheduleRow = {
+    id: 'row-1', source: { sheetName: 'Schedule', rowNumber: 2, cells: fields, formulaCells: [], hidden: false, warnings: [] },
+    imported: structuredClone(data), values: structuredClone(data), warnings: [],
+  };
+  state = act(state, { type: 'attachEvidence', documentVersionId: document.id, file: {
+    id: '00000000-0000-4000-8000-000000000001', sha256: 'a'.repeat(64), byteSize: 1024,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  } });
+  state = act(state, { type: 'saveSchedule', sourceDocumentVersionId: document.id, sourceSha256: 'a'.repeat(64), rows: [row] });
   return act(state, { type: 'prepareQuote' });
 }
 
@@ -135,6 +166,19 @@ test('early QS exports historical unconfirmed values with exact rates and exclud
   assert.ok(text.includes('0,0483 %'));
   assert.ok(text.includes('IDR 3.381.000,00'));
   assert.ok(text.includes('IDR 3.400.000,00'));
+});
+
+test('QS embeds the immutable reviewed schedule with provenance and excludes the client discount', async () => {
+  const state = scheduleQuoteCase();
+  const { text } = await documentText(await createQuoteBlob(state));
+  assert.ok(text.includes('Broker-reviewed schedule v1'));
+  assert.ok(text.includes('Current schedule.xlsx'));
+  assert.ok(text.includes('Factory A'));
+  assert.ok(text.includes('Imported source value'));
+  assert.ok(text.includes('As stated in insurer quote'));
+  assert.ok(text.includes('Gross premium illustration (no client discount applied)'));
+  assert.ok(!text.includes('illustrative client discount'));
+  assert.ok(!text.includes('Dikonfirmasi klien'));
   assert.ok(text.includes('Dikecualikan / tidak dihitung'));
   assert.ok(text.includes('HALF_UP ke 2 angka desimal'));
   assert.ok(text.includes('qs-source-utama'));
