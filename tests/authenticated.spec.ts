@@ -13,6 +13,10 @@ import { getCurrentWording } from '../src/domain.ts';
 test.use({trace:'off'});
 test.skip(process.env.REKONVIA_RUN_HOSTED_BROWSER_TESTS!=='1','Explicitly enabled hosted acceptance only.');
 async function login(page:Page,account:{email:string;password:string}) {
+  await page.addInitScript(() => {
+    localStorage.setItem('ruang-renewal.tour.v1.broker','seen');
+    localStorage.setItem('ruang-renewal.tour.v1.client','seen');
+  });
   await page.goto('/');await page.getByLabel('Email',{exact:true}).fill(account.email);await page.getByLabel('Kata sandi',{exact:true}).fill(account.password);
   const response=page.waitForResponse(r=>r.url().includes('/auth/v1/token') && r.request().method()==='POST');
   await page.getByRole('button',{name:'Masuk',exact:true}).click();

@@ -12,6 +12,10 @@ async function accountTrigger(page: Page) {
 
 // Presentation fixtures never create hosted users, mutate cases or call an AI provider.
 async function account(page: Page, role: 'broker' | 'client', email = 'qa@example.invalid') {
+  await page.addInitScript(() => {
+    localStorage.setItem('ruang-renewal.tour.v1.broker', 'seen');
+    localStorage.setItem('ruang-renewal.tour.v1.client', 'seen');
+  });
   const state = proposalReadyCase();
   const user = { id: 'presentation-' + role, email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-11-19T00:00:00Z' };
   const writes: string[] = [];

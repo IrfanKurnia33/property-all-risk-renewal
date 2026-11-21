@@ -5,6 +5,10 @@ import { proposalReadyCase } from './fixtures.ts';
 
 const language = (page: Page, locale: 'en' | 'id') => page.getByTestId('locale-' + locale);
 async function mockAccount(page: Page, role: 'broker' | 'client') {
+  await page.addInitScript(() => {
+    localStorage.setItem('ruang-renewal.tour.v1.broker', 'seen');
+    localStorage.setItem('ruang-renewal.tour.v1.client', 'seen');
+  });
   const state = proposalReadyCase();
   const user = { id: 'client-demo', email: 'qa@example.invalid', aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-11-19T00:00:00Z' };
   await page.route('**/auth/v1/token**', route => route.fulfill({ json: { access_token: 'test-session', refresh_token: 'test-refresh', token_type: 'bearer', expires_in: 3600, user } }));

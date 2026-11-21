@@ -8,8 +8,8 @@ export function BrandLockup({ className = '' }: { className?: string }) {
   </span>;
 }
 
-export function AccountMenu({ email, role, onBack, onLogout }: {
-  email: string; role?: 'broker' | 'client'; onBack?: () => void; onLogout: () => void;
+export function AccountMenu({ email, role, onBack, onReplayTour, onLogout }: {
+  email: string; role?: 'broker' | 'client'; onBack?: () => void; onReplayTour?: () => void; onLogout: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -48,6 +48,7 @@ export function AccountMenu({ email, role, onBack, onLogout }: {
     </button>
     <div className="account-menu-actions" id={id} role="group" aria-label={t('Akun')} hidden={!open} data-testid="account-menu-actions">
       {onBack && <button type="button" onClick={() => { setOpen(false); trigger.current?.focus(); onBack(); }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1m0-15c3-2 6-2 9-1v15c-3-1-6-1-9 1M12 5v15" /></svg>{t('Daftar kasus')}</button>}
+      {onReplayTour && <button type="button" onClick={() => { setOpen(false); trigger.current?.focus(); onReplayTour(); }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1-1.5 2M12 17h.01"/></svg>{t('Ulangi tur')}</button>}
       <button type="button" onClick={() => { setOpen(false); onLogout(); }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4m6-13 5 5-5 5M9 12h11" /></svg>{t('Keluar')}</button>
     </div>
   </div>;

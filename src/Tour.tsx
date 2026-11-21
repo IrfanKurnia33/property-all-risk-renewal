@@ -3,7 +3,22 @@ import { useEffect, useRef, useState } from 'react';
 import type { Stage } from './domain.ts';
 
 const TOUR_KEY = 'ruang-renewal.tour.v1';
-const steps: { title: string; text: string; stage: Stage; detail: string }[] = [
+export type TourRole = 'broker' | 'client' | 'simulation';
+
+const brokerSteps: { title: string; text: string; stage: Stage; detail: string }[] = [
+  { title: 'Mulai dari bahan renewal', text: 'Siapkan slip periode lalu dan referensi Standard T&C. Unggah dokumen sumber agar setiap tindak lanjut memiliki versi dan bukti yang jelas.', stage: 'materials', detail: 'Tahap ini belum memerlukan persetujuan klien. Broker meninjau, membandingkan, dan menyiapkan QS.' },
+  { title: 'Koordinasikan dengan insurer', text: 'Catat balasan, revisi, dan bukti dari komunikasi insurer eksternal. Rekonvia menjaga proposal dan insurer tetap berada pada versi yang sama.', stage: 'insurer', detail: 'Insurer tidak masuk sebagai pengguna portal. Hanya broker yang mencatat respons dan klausa hasil negosiasi.' },
+  { title: 'Publikasikan proposal untuk klien', text: 'Setelah panel mendukung opsi yang dipilih, publikasikan proposal. Klien dapat meninjau proposal dan memberi catatan pada workspace-nya.', stage: 'proposal', detail: 'Proposal yang diterbitkan mengambil snapshot data dan wording pada saat tersebut.' },
+  { title: 'Ikuti konfirmasi data klien', text: 'Lokasi lama dan sum insured bersifat historis sampai klien mengonfirmasi periode berjalan beserta sumbernya.', stage: 'reconciliation', detail: 'Broker mencocokkan bukti. Tidak ada lokasi atau nilai baru yang boleh ditetapkan broker atas nama klien.' },
+  { title: 'Selesaikan final review dan binding', text: 'Gunakan ringkasan perubahan, selesaikan penghambat yang terlihat, unduh DFS, lalu catat acknowledgment dari insurer secara eksternal.', stage: 'final', detail: 'Klien menyetujui renewal dan memberi instruksi. Broker tidak memberikan approval formal atas nama klien.' },
+];
+const clientSteps: { title: string; text: string; stage: Stage; detail: string }[] = [
+  { title: 'Mulai dari proposal Anda', text: 'Buka proposal renewal yang telah dipublikasikan broker. Proposal ini hanya memuat versi yang boleh ditinjau di akun Anda.', stage: 'proposal', detail: 'Proposal lama tetap tersimpan jika broker memperbarui terms atau data renewal.' },
+  { title: 'Periksa lokasi dan sum insured', text: 'Bandingkan lokasi periode lalu dengan data periode berjalan, lalu konfirmasi nama, alamat, nilai, dan sumber yang benar.', stage: 'reconciliation', detail: 'Konfirmasi data merupakan tanggung jawab klien. Broker mencocokkan bukti, bukan menetapkan nilai atas nama klien.' },
+  { title: 'Berikan catatan kepada broker', text: 'Gunakan bagian tanggapan untuk menjelaskan koreksi, pertanyaan mengenai premi, atau instruksi tambahan.', stage: 'proposal', detail: 'Catatan klien kembali menjadi item review broker; catatan tidak langsung mengubah proposal.' },
+  { title: 'Setujui proposal dan beri instruksi', text: 'Setelah data lokasi tersimpan, setujui versi proposal terbaru dan beri instruksi renewal secara terpisah.', stage: 'final', detail: 'Persetujuan dan instruksi selalu merujuk proposal beserta revisinya.' },
+];
+const simulationSteps: { title: string; text: string; stage: Stage; detail: string }[] = [
   { title: 'Satu kasus, dari quotation sampai binding', text: 'Selamat datang di Rekonvia. Anda akan mencoba renewal Property All Risks PT Arunika dengan data fiktif. Semua pengiriman dan tanggapan berlangsung di dalam simulasi ini.', stage: 'materials', detail: 'Mulai dari final slip tahun lalu dan Standard T&C. Tombol langkah berikutnya akan membantu Anda melanjutkan.' },
   { title: 'Ikuti tahap, bolak-balik bila perlu', text: 'Lima tahap di sisi kiri menjaga konteks pekerjaan. Anda boleh membuka tahap lain untuk melihat isinya; tindakan tetap mengikuti prasyarat renewal.', stage: 'insurer', detail: 'Asuransi meninjau quotation. Broker bisa bernegosiasi kembali sebelum mengirim proposal ke klien.' },
   { title: 'Broker mencatat, klien mengonfirmasi', text: 'Broker mencatat balasan insurer dari komunikasi eksternal. Setelah proposal dipublikasikan, gunakan peran klien untuk mengirim data dan keputusan.', stage: 'proposal', detail: 'Insurer tidak memiliki peran portal. Lokasi dan sum insured periode berjalan memerlukan konfirmasi klien.' },
@@ -11,21 +26,23 @@ const steps: { title: string; text: string; stage: Stage; detail: string }[] = [
   { title: 'Selesaikan penghambat sebelum mengunduh', text: 'Final review menjelaskan setiap rincian yang belum selesai. Perubahan data klien membuka kembali review asuransi. Persetujuan klien atas proposal terbaru diperlukan sebelum permintaan binding.', stage: 'final', detail: 'Progres tersimpan di browser ini. Unduh ringkasan untuk membagikan hasil uji, atau buka “Ulangi tur” kapan saja.' },
 ];
 
-export function useTour() {
+export function useTour(role: TourRole = 'simulation') {
+  const key = role === 'simulation' ? TOUR_KEY : `${TOUR_KEY}.${role}`;
   const [tourOpen, setTourOpen] = useState(() => {
-    try { return localStorage.getItem(TOUR_KEY) !== 'seen'; } catch { return true; }
+    try { return localStorage.getItem(key) !== 'seen'; } catch { return true; }
   });
   function closeTour() {
-    try { localStorage.setItem(TOUR_KEY, 'seen'); } catch { /* The tour can still close without persistent storage. */ }
+    try { localStorage.setItem(key, 'seen'); } catch { /* The tour can still close without persistent storage. */ }
     setTourOpen(false);
   }
   return { tourOpen, openTour: () => setTourOpen(true), closeTour };
 }
 
-export function Tour({ open, onClose, onNavigate }: { open: boolean; onClose: () => void; onNavigate?: (stage: Stage) => void }) {
+export function Tour({ open, onClose, onNavigate, role = 'simulation' }: { open: boolean; onClose: () => void; onNavigate?: (stage: Stage) => void; role?: TourRole }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [step, setStep] = useState(0);
+  const steps = role === 'client' ? clientSteps : role === 'simulation' ? simulationSteps : brokerSteps;
   useEffect(() => {
     if (open) {
       setStep(0);
