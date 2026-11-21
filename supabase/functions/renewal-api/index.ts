@@ -19,6 +19,18 @@ function dbError(error: {code?:string;message?:string}|null) {
   if(error.message?.includes('CASE_EXISTS'))throw new ApiError(409,'CASE_ALREADY_EXISTS');
   if(error.message?.includes('CONTRIBUTING_CLIENT_LOCKED'))throw new ApiError(422,'ASSIGNMENT_HAS_EVIDENCE','Akun yang telah memberikan bukti atau keputusan memerlukan peninjauan pengelola sebelum aksesnya diubah.');
   if(error.message?.includes('BINDING_COMPLETE'))throw new ApiError(422,'BINDING_COMPLETE','Akses pada kasus yang selesai binding sudah dikunci.');
+  if(error.message?.includes('WORKSPACE_SUPERADMIN_REQUIRED'))throw new ApiError(403,'WORKSPACE_SUPERADMIN_REQUIRED','Hanya Superadmin workspace yang dapat mengubah akses anggota.');
+  if(error.message?.includes('STANDARD_TERMS_PERMISSION_REQUIRED'))throw new ApiError(403,'STANDARD_TERMS_PERMISSION_REQUIRED','Anda tidak memiliki izin untuk mengelola Standard T&C.');
+  if(error.message?.includes('LAST_WORKSPACE_SUPERADMIN'))throw new ApiError(422,'LAST_WORKSPACE_SUPERADMIN','Workspace harus memiliki setidaknya satu Superadmin.');
+  if(error.message?.includes('MEMBERSHIP_HAS_CASE_HISTORY'))throw new ApiError(422,'MEMBERSHIP_HAS_CASE_HISTORY','Peran akun dengan penugasan atau aktivitas kasus tidak dapat diubah.');
+  if(error.message?.includes('SELF_PERMISSION_CHANGE'))throw new ApiError(422,'SELF_PERMISSION_CHANGE','Anda tidak dapat mengubah peran atau izin akun sendiri.');
+  if(error.message?.includes('INVALID_WORKSPACE_MEMBERS'))throw new ApiError(422,'INVALID_WORKSPACE_MEMBERS','Periksa kembali perubahan anggota workspace.');
+  if(error.message?.includes('WORKSPACE_TERMS_UPLOAD_EXPIRED'))throw new ApiError(422,'WORKSPACE_TERMS_UPLOAD_EXPIRED','Reservasi unggahan Standard T&C berakhir. Mulai versi baru.');
+  if(error.message?.includes('WORKSPACE_TERMS_UPLOAD_INCOMPLETE'))throw new ApiError(422,'WORKSPACE_TERMS_UPLOAD_INCOMPLETE','Unggahan Standard T&C belum lengkap.');
+  if(error.message?.includes('WORKSPACE_TERMS_FINALIZED'))throw new ApiError(409,'WORKSPACE_TERMS_FINALIZED','Versi Standard T&C ini sudah difinalisasi dan tidak dapat diubah.');
+  if(error.message?.includes('INVALID_STANDARD_TERMS_UPLOAD'))throw new ApiError(422,'INVALID_STANDARD_TERMS_UPLOAD','Gunakan file PDF atau DOCX, maksimum 10 MiB.');
+  if(error.message?.includes('WORKSPACE_TERMS_NOT_FOUND'))throw new ApiError(404,'NOT_FOUND');
+  if(error.message?.includes('WORKSPACE_MEMBER_NOT_FOUND'))throw new ApiError(422,'INVALID_WORKSPACE_MEMBERS','Anggota yang dipilih tidak lagi berada di workspace ini.');
   if(error.code==='42501')throw new ApiError(403,'FORBIDDEN');
   if(error.code==='P0002')throw new ApiError(404,'NOT_FOUND');
   if(error.code==='22023')throw new ApiError(422,'INVALID_TRANSITION');
@@ -91,9 +103,57 @@ async function download(path:string) {
 async function exportLink(artifact:{path:string;id:string;manifest:unknown}) {
   return {...await download(artifact.path),id:artifact.id,manifest:artifact.manifest};
 }
+async function workspaceSettings(userId:string) {
+  const {data,error}=await service.rpc('broker_workspace_settings',{p_actor:userId});dbError(error);return data;
+}
 async function handle(request:Request,userId:string) {
   const segments=new URL(request.url).pathname.split('/').filter(Boolean);
   const base=segments.indexOf('renewal-api'); const parts=segments.slice(base+1);
+  if(parts[0]==='workspace-settings') {
+    if(parts.length===1 && request.method==='GET')return workspaceSettings(userId);
+    if(parts[1]==='members' && parts.length===2 && request.method==='POST') {
+      const input=await body(request);assertKeys(input,['workspaceId','changes']);
+      if(typeof input.workspaceId!=='string' || !uuid.test(input.workspaceId) || !Array.isArray(input.changes))throw new ApiError(422,'INVALID_WORKSPACE_MEMBERS');
+      const {data,error}=await service.rpc('set_workspace_memberships',{p_workspace:input.workspaceId,p_actor:userId,p_changes:input.changes});dbError(error);return data;
+    }
+    if(parts[1]==='standard-terms' && parts[2]==='start' && parts.length===3 && request.method==='POST') {
+      const input=await body(request);assertKeys(input,['workspaceId','displayName','byteSize','mimeType']);
+      if(typeof input.workspaceId!=='string' || !uuid.test(input.workspaceId) || typeof input.displayName!=='string'
+        || typeof input.mimeType!=='string' || !['application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(input.mimeType)
+        || fileType(input.displayName)!==input.mimeType || !Number.isSafeInteger(input.byteSize) || Number(input.byteSize)<1 || Number(input.byteSize)>MAX_FILE)
+        throw new ApiError(422,'INVALID_STANDARD_TERMS_UPLOAD');
+      const id=crypto.randomUUID();
+      const {data:reservation,error}=await service.rpc('reserve_workspace_standard_terms',{p_workspace:input.workspaceId,p_actor:userId,
+        p_id:id,p_name:input.displayName,p_mime:input.mimeType,p_size:input.byteSize});dbError(error);
+      if(!reservation)throw new ApiError(500,'UPLOAD_UNAVAILABLE');
+      const {data,error:uploadError}=await service.storage.from(bucket).createSignedUploadUrl(reservation.path,{upsert:false});
+      if(uploadError || !data)throw new ApiError(500,'UPLOAD_UNAVAILABLE');
+      return {...reservation,token:data.token,signedUrl:data.signedUrl};
+    }
+    if(parts[1]==='standard-terms' && uuid.test(parts[2]??'') && parts[3]==='finalize' && parts.length===4 && request.method==='POST') {
+      assertKeys(await body(request),[]);
+      const {data:doc,error}=await service.from('workspace_standard_terms_versions').select('*').eq('id',parts[2]).eq('created_by',userId).maybeSingle();dbError(error);
+      if(!doc)throw new ApiError(404,'NOT_FOUND');
+      const {data:file,error:fileError}=await service.storage.from(bucket).download(doc.object_path);
+      if(fileError || !file)throw new ApiError(422,'WORKSPACE_TERMS_UPLOAD_INCOMPLETE','Unggahan Standard T&C belum dapat dibaca.');
+      if(file.size!==doc.byte_size || file.size>MAX_FILE)throw new ApiError(422,'UPLOAD_SIZE_MISMATCH');
+      const bytes=new Uint8Array(await file.arrayBuffer());validateUpload(bytes,doc.display_name,doc.mime_type);
+      const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
+      const {data,error}=await service.rpc('finalize_workspace_standard_terms',{p_workspace:doc.workspace_id,p_actor:userId,p_id:doc.id,p_sha256:hash});dbError(error);
+      return data;
+    }
+    if(parts[1]==='standard-terms' && uuid.test(parts[2]??'') && parts[3]==='download' && parts.length===4 && request.method==='POST') {
+      assertKeys(await body(request),[]);
+      const {data:doc,error}=await service.from('workspace_standard_terms_versions').select('workspace_id,object_path')
+        .eq('id',parts[2]).eq('upload_status','finalized').maybeSingle();dbError(error);
+      if(!doc)throw new ApiError(404,'NOT_FOUND');
+      const {data:member,error:memberError}=await service.from('memberships').select('user_id')
+        .eq('workspace_id',doc.workspace_id).eq('user_id',userId).eq('role','broker').maybeSingle();dbError(memberError);
+      if(!member)throw new ApiError(404,'NOT_FOUND');
+      return download(doc.object_path);
+    }
+    throw new ApiError(404,'NOT_FOUND');
+  }
   if(parts[0]==='case-setup' && parts.length===1 && request.method==='GET') {
     const {data,error}=await service.rpc('broker_case_setup',{p_actor:userId});dbError(error);return data;
   }

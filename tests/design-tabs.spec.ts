@@ -11,7 +11,7 @@ async function accountTrigger(page: Page) {
 }
 
 // Presentation fixtures never create hosted users, mutate cases or call an AI provider.
-async function account(page: Page, role: 'broker' | 'client', email = 'qa@example.invalid') {
+async function account(page: Page, role: 'broker' | 'client', email = 'qa@example.invalid', superadmin = false) {
   await page.addInitScript(() => {
     localStorage.setItem('ruang-renewal.tour.v1.broker', 'seen');
     localStorage.setItem('ruang-renewal.tour.v1.client', 'seen');
@@ -19,6 +19,7 @@ async function account(page: Page, role: 'broker' | 'client', email = 'qa@exampl
   const state = proposalReadyCase();
   const user = { id: 'presentation-' + role, email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-11-19T00:00:00Z' };
   const writes: string[] = [];
+  let membershipChanges: unknown;
   await page.route('**/auth/v1/token**', route => route.fulfill({ json: { access_token: 'test-session', refresh_token: 'test-refresh', token_type: 'bearer', expires_in: 3600, user } }));
   await page.route('**/auth/v1/logout**', route => route.fulfill({ status: 204 }));
   await page.route('**/functions/v1/renewal-api/**', route => {
@@ -27,6 +28,18 @@ async function account(page: Page, role: 'broker' | 'client', email = 'qa@exampl
     if (request.method() !== 'GET') writes.push(path);
     if (path === 'cases') return route.fulfill({ json: { cases: [{ caseId: state.id, clientName: state.clientName, role, lockVersion: state.lockVersion }] } });
     if (path === 'case-setup') return route.fulfill({ json: { workspaces: role === 'broker' ? [{ workspaceId: 'qa', name: 'QA brokerage', clients: [] }] : [] } });
+    if (path === 'workspace-settings') return route.fulfill({ json: { workspaces: role === 'broker' ? [{
+      workspaceId: 'qa', name: 'QA brokerage', isSuperadmin: superadmin, canManageStandardTerms: superadmin,
+      members: superadmin ? [
+        { userId: user.id, email, role: 'broker', superadmin: true, canManageStandardTerms: true },
+        { userId: 'presentation-colleague', email: 'colleague@example.invalid', role: 'broker', superadmin: false, canManageStandardTerms: false },
+        { userId: 'presentation-client', email: 'client@example.invalid', role: 'client', superadmin: false, canManageStandardTerms: false },
+      ] : [], standardTerms: [],
+    }] : [] } });
+    if (path === 'workspace-settings/members') {
+      membershipChanges = request.postDataJSON().changes;
+      return route.fulfill({ json: { updated: 1 } });
+    }
     if (path.endsWith('/assignments')) return route.fulfill({ json: { workspaceId: 'qa', lockVersion: state.lockVersion, clients: [], clientUserIds: [] } });
     if (path.endsWith('/ai')) return route.fulfill({ json: { batches: [], budget: { attemptsToday: 0, limit: 40, inFlightUntil: null } } });
     return route.fulfill({ json: role === 'broker' ? { role, state } : { role, ...clientView(state, user.id) } });
@@ -37,17 +50,21 @@ async function account(page: Page, role: 'broker' | 'client', email = 'qa@exampl
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.getByRole('button').filter({ hasText: 'Open case →' }).click();
   await expect(page.getByRole('heading', { name: state.clientName, exact: true })).toBeVisible();
-  return { state, writes };
+  return { state, writes, membershipChanges: () => membershipChanges };
 }
 
 test('broker sections preserve drafts and locale, with keyboard tab navigation', async ({ page }) => {
   const { writes } = await account(page, 'broker');
+  await expect(page.getByTestId('section-tab-wording')).toHaveCount(0);
+  await page.locator('.stage-link:visible').filter({ hasText: 'Insurer review' }).click();
+  await expect(page.getByTestId('section-tab-wording')).toBeVisible();
+  await page.locator('.stage-link:visible').filter({ hasText: 'Renewal materials' }).click();
   const sources = page.getByTestId('section-tab-sources');
   await sources.click();
   await page.getByText('Record a new fictional source version', { exact: true }).click();
   const draft = page.locator('#doc-name');
   await draft.fill('Unsent source wording — keep verbatim');
-  await page.getByTestId('section-tab-wording').click();
+  await page.getByTestId('section-tab-terms').click();
   await expect(draft).toHaveValue('Unsent source wording — keep verbatim');
   await expect(draft).not.toBeVisible();
   await page.getByTestId('locale-id').click();
@@ -92,6 +109,7 @@ test('sticky workspace chrome and account actions stay reachable at every suppor
   await trigger.click();
   await page.locator('.case-heading').click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('.stage-link:visible').filter({ hasText: 'Insurer review' }).click();
   await page.getByTestId('section-tab-wording').click();
   await page.setViewportSize({ width: 1440, height: 720 });
   await page.evaluate(() => window.scrollTo(0, 1000));
@@ -155,4 +173,32 @@ test('client sections retain location and decision drafts without exposing broke
   await page.locator('[data-testid="account-menu-actions"]:visible').getByRole('button', { name: 'Daftar kasus', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Kasus renewal', exact: true })).toBeVisible();
   expect(writes).toEqual([]);
+});
+
+test('workspace settings do not infer Superadmin or Standard T&C privileges from broker membership', async ({ page }) => {
+  const { state, writes } = await account(page, 'broker');
+  const trigger = await accountTrigger(page);
+  await trigger.click();
+  await page.locator('[data-testid="account-menu-actions"]:visible').getByRole('button', { name: 'Workspace settings', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Workspace settings', exact: true })).toBeVisible();
+  await expect(page.getByText('You can download finalized sources. Upload access is managed by the workspace Superadmin.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Member access', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.getByRole('heading', { name: state.clientName, exact: true })).toBeVisible();
+  expect(writes).toEqual([]);
+});
+
+test('Superadmins can delegate Standard T&C access to another broker member', async ({ page }) => {
+  const { writes, membershipChanges } = await account(page, 'broker', 'admin@example.invalid', true);
+  const trigger = await accountTrigger(page);
+  await trigger.click();
+  await page.locator('[data-testid="account-menu-actions"]:visible').getByRole('button', { name: 'Workspace settings', exact: true }).click();
+  const colleague = page.getByText('colleague@example.invalid', { exact: true }).locator('xpath=../..');
+  await colleague.getByLabel('Manage Standard T&C').check();
+  await page.getByRole('button', { name: 'Save member access', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Member access changes saved.');
+  expect(writes).toEqual(['workspace-settings/members']);
+  expect(membershipChanges()).toEqual([{
+    userId: 'presentation-colleague', role: 'broker', superadmin: false, canManageStandardTerms: true,
+  }]);
 });

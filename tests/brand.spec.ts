@@ -70,6 +70,8 @@ test('production brand uses semantic colors, local fonts and the original wordma
     return new Set(tops).size;
   });
   expect(countLines).toBe(1);
+  await page.locator('.mobile-stage-nav > summary').click();
+  await page.locator('.stage-link:visible').filter({ hasText: 'Review asuransi' }).click();
   await page.getByTestId('section-tab-wording').click();
   const placeholder = await page.locator('#review-note-clause-1').evaluate(element => {
     element.setAttribute('placeholder', 'Contoh sumber');
@@ -102,6 +104,7 @@ test('Preflight preserves centered dialogs, clause numbering, focus and reduced 
   expect(Math.abs(bounds.x + bounds.width / 2 - 720)).toBeLessThan(2);
   await expect(source.locator('.clause-list')).toHaveCSS('list-style-type', 'decimal');
   await page.keyboard.press('Escape');
+  await page.locator('.stage-link:visible').filter({ hasText: 'Review asuransi' }).click();
   await page.getByTestId('section-tab-wording').click();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const button = page.locator('#review-clause-1').getByRole('button', { name: 'Simpan review wording', exact: true });

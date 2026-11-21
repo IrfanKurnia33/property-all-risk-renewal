@@ -186,6 +186,7 @@ test('brokers create an unconfirmed historical schedule, manage client access an
       await expect(upload).toHaveCount(0);
       await expect(broker.locator('fieldset.main-column')).toBeEnabled();
     }
+    await stage(broker, 'Review asuransi');
     await section(broker, 'wording');
     await broker.getByText('Tambah klausul dari baseline disepakati', { exact: true }).click();
     const baseline = broker.locator('#add-baseline-clause');
@@ -202,6 +203,7 @@ test('brokers create an unconfirmed historical schedule, manage client access an
     const review = broker.locator('#review-' + item.id);
     await review.getByLabel('Catatan review wording', { exact: true }).fill('Wording dan kedua versi sumber QA diperiksa manual.');
     await command(broker, () => review.getByRole('button', { name: 'Simpan review wording', exact: true }).click());
+    await stage(broker, 'Renewal materials');
     await section(broker, 'qs');
     await expect(broker.getByTestId('send-quote')).toBeEnabled();
     await command(broker, () => broker.getByTestId('send-quote').click());

@@ -22,6 +22,7 @@ test('English defaults across all broker stages; switching preserves drafts, sou
   await expect(page.getByRole('heading', { name: 'Documents and source versions' })).toBeVisible();
   await expect(page.locator('#doc-option option[value="utama"]')).toHaveText('Main option');
   await expect(page.locator('#doc-option option[value="alternatif"]')).toHaveText('Separate alternative');
+  await stage(page, 'Insurer review');
   await page.getByTestId('section-tab-wording').click();
   const source = page.locator('#out-clause-1');
   await page.locator('summary').filter({ hasText: 'Record a QS or response change' }).first().click();
@@ -32,17 +33,18 @@ test('English defaults across all broker stages; switching preserves drafts, sou
   await expect(page.locator('html')).toHaveAttribute('lang', 'id-ID');
   await expect(page.locator('#selected-option option')).toHaveText(['Opsi utama', 'Alternatif terpisah']);
   await expect(page.locator('#selected-option')).toHaveValue('utama');
-  await expect(page.locator('#doc-option option[value="utama"]')).toHaveText('Opsi utama');
-  await expect(page.locator('#doc-option option[value="alternatif"]')).toHaveText('Alternatif terpisah');
   await language(page, 'en_US').click();
   await expect(source).toHaveValue('Unsent original wording — do not translate');
   await expect(page.locator('#selected-option option')).toHaveText(['Main option', 'Separate alternative']);
   await expect(page.locator('#selected-option')).toHaveValue('utama');
   page.on('dialog', dialog => dialog.accept());
-  for (const [nav, heading] of [['Insurer review', 'Panel position by insurer'], ['Client proposal', 'Active proposal'], ['Data reconciliation', proposalReadyCase().locations[0].prior.name], ['Final review', 'DFS readiness']]) {
+  for (const [nav, heading] of [['Insurer review', 'Panel position by insurer'], ['Client proposal', 'Active proposal'], ['Final review & binding', proposalReadyCase().locations[0].prior.name]]) {
     await stage(page, nav);
+    if (nav === 'Insurer review') await page.getByTestId('section-tab-panel').click();
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
   }
+  await page.getByTestId('section-tab-readiness').click();
+  await expect(page.getByRole('heading', { name: 'DFS readiness', exact: true })).toBeVisible();
   await stage(page, 'Renewal materials');
   await page.getByTestId('section-tab-sources').click();
   await page.getByRole('button', { name: 'View document', exact: true }).first().click();

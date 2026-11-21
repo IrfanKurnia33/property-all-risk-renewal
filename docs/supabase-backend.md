@@ -1,8 +1,8 @@
 # Supabase backend handoff
 
-Updated 20 November 2026. Phases 4–5 implement the authenticated manual workflow and optional broker-only AI source review: case creation/assignment, historical onboarding, private uploads, focused client proposals, three editable Word templates and recorded binding. The normal Vite build uses Supabase; the previous local simulation is isolated behind an explicit test build flag. The Supabase API and migrations are deployed. Publishing this frontend revision to Vercel remains a separate step. Live AI text passed; live image assistance encountered provider errors/rate limiting and remains unverified.
+Updated 21 November 2026. Phases 4–5 implement the authenticated manual workflow and optional broker-only AI source review: case creation/assignment, historical onboarding, private uploads, focused client proposals, three editable Word templates and recorded binding. The normal Vite build uses Supabase; the previous local simulation is isolated behind an explicit test build flag. Phase U1 adds a four-stage broker navigation, workspace settings, scoped membership capabilities and immutable Standard T&C versions. Its migration and Edge Function changes are local and have not been deployed. Live AI text passed; live image assistance encountered provider errors/rate limiting and remains unverified.
 
-The latest frontend revisions add English/Indonesian localization, section tabs, a sticky header/context panel and a sidebar account menu. These presentation changes retain the existing Auth, permissions, API and readiness rules; they require no new migration or Supabase dashboard setting.
+The earlier frontend presentation revisions added English/Indonesian localization, section tabs, a sticky header/context panel and a sidebar account menu. Phase U1 includes backend authorization and immutable storage, so deployment requires the new migration and Edge Function as well as the frontend.
 
 ## Deployed foundation
 
@@ -16,12 +16,13 @@ The latest frontend revisions add English/Indonesian localization, section tabs,
 - Upload reservation, immutable signed upload paths, server validation, SHA-256 attribution and transactional finalization. Pending uploads cannot satisfy source requirements or be downloaded as evidence.
 - Guarded QS, proposal and DFS Word generation in the hosted Edge runtime. QS/DFS stay broker-private; assigned clients receive only an explicitly published proposal artifact through a separately authorized download route.
 - Broker-private AI batches, steps, attempt counts and human reviews. The Phase 5 migration adds six service-only functions for source validation, idempotency, workspace budgets/leases and review; AI operations never mutate the renewal case.
+- Phase U1's local migration adds explicit workspace Superadmin and delegated Standard T&C capabilities, an immutable membership-change audit trail, and versioned private PDF/DOCX Standard T&C uploads. It does not infer a Superadmin from broker membership; the workspace owner must explicitly provision one.
 
 The pure domain, decimal calculations and Word builders live in `supabase/functions/_shared/`. Browser-facing `src/domain.ts` and `src/decimal.ts` re-export the same implementation; `src/downloads.ts` keeps only browser download and summary behavior. Do not create a second server copy of the rules.
 
 ## Owner setup and next steps
 
-The four owner-created users and confirmed emails have been verified. Both brokers belong to the same fictional brokerage. Client 1 is assigned only to `PILOT-PAR-2027-001`; Client 2 is assigned only to `PILOT-PAR-2027-002`. The Site URL is correct and public signup remains disabled. No more manual Supabase setup is needed for this slice. No account passwords were read or changed.
+The four owner-created users and confirmed emails have been verified. Both brokers belong to the same fictional brokerage. Client 1 is assigned only to `PILOT-PAR-2027-001`; Client 2 is assigned only to `PILOT-PAR-2027-002`. The Site URL is correct and public signup remains disabled. No account passwords were read or changed. After applying the U1 migration and Edge Function, the workspace owner must explicitly select an existing broker as the first Superadmin; no broker receives that capability automatically.
 
 1. Run `npm.cmd run dev` locally and sign in with your pilot account. Brokers can open both fictional cases. A client sees no case until its assigned proposal is published; that empty state is expected.
 2. Vercel frontend Config variables are owner-confirmed as added: `VITE_SUPABASE_URL` must be **`https://watvbzvpkclcqaogyjtb.supabase.co`** and `VITE_SUPABASE_PUBLISHABLE_KEY` the publishable key. Apply them to the intended deployment environment; keep `VITE_DEMO_MODE` absent or false. Never add the PAT, database password or server key.
@@ -30,10 +31,11 @@ The four owner-created users and confirmed emails have been verified. Both broke
 
 Browser acceptance exercises two brokers and two clients using separate temporary QA accounts, including new-case preparation, all three Word outputs and recorded binding acknowledgment. The temporary accounts are disabled after testing and are not your owner-created pilot users.
 
-For additional existing Auth users, provision a fictional membership and assignment with:
+For additional existing Auth users, provision a fictional membership and assignment. To explicitly provision the selected broker as a Superadmin, include `--superadmin` with the same broker UUID; without it, the script does not grant administrative capability:
 
    ```powershell
    node scripts/provision-pilot.mjs --broker BROKER_AUTH_UUID --client CLIENT_AUTH_UUID
+   node scripts/provision-pilot.mjs --broker BROKER_AUTH_UUID --client CLIENT_AUTH_UUID --superadmin BROKER_AUTH_UUID
    ```
 
 This defaults to `PILOT-PAR-2027-001` and preserves existing case state. For a different client case, specify it explicitly:
@@ -52,23 +54,22 @@ The owner-provisioned OPENROUTER_API_KEY Edge Function secret is configured and 
 
 English is the default. The header's **EN / ID** toggle changes application labels, date/number formatting and the two built-in quotation option names (**Main option / Separate alternative**; **Opsi utama / Alternatif terpisah** in Indonesian). The preference is saved locally; changing it does not rewrite source wording, evidence or case data. Document templates are not selected by the interface language.
 
-The desktop sidebar contains the five broker workflow stages. Horizontal tabs below the case heading select a section within the stage:
+The desktop sidebar contains the four broker workflow stages. Horizontal tabs below the case heading select a section within the stage:
 
 | Broker stage | Sections |
 | --- | --- |
-| Renewal materials | QS overview; Document sources; Wording; Terms & premium; AI assistance; Case access |
+| Renewal materials | QS overview; Document sources; Terms & premium; AI assistance; Case access |
 | Insurer review | Panel overview; Record response; Wording; Terms & premium |
 | Client proposal | Published proposal, publication and proposal Word download in one view |
-| Data reconciliation | One tab per location |
-| Final review & binding | DFS readiness; Binding; Session notes |
+| Final review & binding | Risk reconciliation (all locations); DFS readiness; Binding; Session notes |
 
-Use **Document sources** for uploads and **Case access** to assign existing client accounts. Insurers remain external parties; brokers record their responses under **Insurer review → Record response**. There is no insurer login or role picker in the authenticated workflow.
+Use **Document sources** for uploads and **Case access** to assign existing client accounts. Wording review remains available under **Insurer review**; Standard T&C workspace sources are managed separately from case evidence. Insurers remain external parties; brokers record their responses under **Insurer review → Record response**. There is no insurer login or role picker in the authenticated workflow.
 
 Assigned clients have their own restricted workspace with **Proposal**, **Location data**, **Renewal decisions** and **Response history** tabs. Confirm current-period locations before recording proposal acceptance and renewal instruction as separate actions. Client responses remain subject to the existing version and readiness checks.
 
 Tabs and language changes retain unsaved form entries in the current workspace. They do not save them to the server. Save before leaving; workflow-stage and case navigation guard unsaved manual forms, and reload/conflict handling retains drafts for review. AI preparation has its own memory-only limits, described in the [AI guide](ai-assistance.md#interrupted-work-and-failures).
 
-Select your email/role card below the desktop sidebar footer for **Case list** or **Sign out**. On narrow screens, expand the stage navigation (broker) or **Account menu** (case list/client), then open the identity card. The case list itself offers **Sign out**, without a redundant **Case list** action. The header stays visible while scrolling; the broker readiness/activity context stays beside the form on wide screens and returns to normal document flow on smaller screens.
+Select your email/role card below the desktop sidebar footer for **Case list**, **Workspace settings** (broker only), or **Sign out**. Superadmins can manage existing member roles and delegated Standard T&C access; account creation and invitations remain owner-managed. Role changes are blocked for accounts with case assignments or recorded case activity, and at least one Superadmin must remain. On narrow screens, expand the stage navigation (broker) or **Account menu** (case list/client), then open the identity card. The case list itself offers **Sign out**, without a redundant **Case list** action. The header stays visible while scrolling; the broker readiness/activity context stays beside the form on wide screens and returns to normal document flow on smaller screens.
 
 ## Local credentials and commands
 
@@ -94,6 +95,11 @@ All routes below are relative to `/functions/v1/renewal-api`. Send `apikey: <pub
 | --- | --- |
 | `GET /cases` | RLS-filtered broker cases and assigned published client proposals |
 | `GET /case-setup` | Broker-only workspace/client directory; no global Auth directory |
+| `GET /workspace-settings` | Broker workspace capabilities, finalized Standard T&C versions and (for Superadmins) the existing-member roster |
+| `POST /workspace-settings/members` | Superadmin-only, audited role/capability updates; cannot edit the caller or remove the last Superadmin |
+| `POST /workspace-settings/standard-terms/start` | Reserve an immutable PDF/DOCX version and return a private signed upload URL |
+| `POST /workspace-settings/standard-terms/:versionId/finalize` | Validate uploaded bytes and finalize a hashed immutable workspace source version |
+| `POST /workspace-settings/standard-terms/:versionId/download` | Short-lived download link for a finalized source and broker in the same workspace |
 | `POST /cases` | Atomically create a fictional case from explicit historical periods/schedule and assign existing clients |
 | `GET /cases/:caseId` | Full broker case or separately constructed client-safe view |
 | `GET /cases/:caseId/assignments` | Broker-only same-workspace client accounts and current assignments |

@@ -14,7 +14,7 @@ test('English is the default and invalid or unavailable storage falls back safel
 test('messages, dynamic readiness and source identifiers translate without changing case data', () => {
   assert.equal(translate('Masuk ke Rekonvia', 'en_US'), 'Sign in to Rekonvia');
   assert.equal(translate('Masuk ke Rekonvia', 'id_ID'), 'Masuk ke Rekonvia');
-  assert.equal(translate('Langkah 2 dari 5', 'en_US'), 'Step 2 of 5');
+  assert.equal(translate('Langkah 2 dari 4', 'en_US'), 'Step 2 of 4');
   const state = createInitialCase(), before = JSON.stringify(state);
   for (const blocker of [...getQsBlockers(state), ...getExportBlockers(state)]) {
     const result = translate(blocker.label, 'en_US');

@@ -62,12 +62,14 @@ async function insurerResponse(page: Page, id: string, name: string, share: stri
 }
 
 async function reviewWording(page: Page) {
+  await stage(page, 'Review asuransi');
   await section(page, 'wording');
   for (let i = 1; i <= 4; i++) {
     const form = page.locator('#review-clause-' + i);
     await form.getByLabel('Catatan review wording').fill('Baseline dan QS sama, sumber fiktif diperiksa.');
     await form.getByRole('button', { name: 'Simpan review wording', exact: true }).click();
   }
+  await stage(page, 'Bahan renewal');
 }
 
 test('first visit tour remains keyboard accessible and does not write case evidence', async ({ page }) => {
@@ -139,13 +141,13 @@ test('a two-insurer panel completes the manual client, DFS and per-member bindin
   await page.getByLabel('Bukti keputusan / instruksi klien').fill('Saya menginstruksikan renewal sesuai proposal ini (fiktif).');
   await page.getByTestId('client-instruct').click();
   await role(page, 'broker');
-  await stage(page, 'Rekonsiliasi data');
+  await stage(page, 'Final review');
+  await section(page, 'risk');
   for (const id of ['bekasi', 'tangerang', 'cikarang']) {
-    await section(page, 'location-' + id);
     await page.locator('#match-note-' + id).fill('Cocok dengan konfirmasi klien yang tercatat.');
     await page.getByTestId('match-' + id).click();
   }
-  await stage(page, 'Final review');
+  await section(page, 'readiness');
   for (const key of ['identity', 'period', 'rate', 'deductible', 'clauses']) await page.getByTestId('check-' + key).check();
   await page.getByTestId('issue-dfs').click();
   const wordDownload = page.waitForEvent('download');
@@ -212,16 +214,13 @@ test('incomplete client evidence exposes DFS blockers and comparison data remain
   await expect(page.getByTestId('issue-dfs')).toBeDisabled();
   for (const [width, height] of [[1440, 900], [1024, 768], [820, 1180], [768, 1024], [390, 844], [320, 844]]) {
     await page.setViewportSize({ width, height });
-    for (const label of ['Bahan renewal', 'Review asuransi', 'Proposal klien', 'Rekonsiliasi data', 'Final review']) {
+    for (const label of ['Bahan renewal', 'Review asuransi', 'Proposal klien', 'Final review & binding']) {
       await stage(page, label);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `${label} at ${width}px`).toBeLessThanOrEqual(1);
-      if (label === 'Rekonsiliasi data') for (const location of state.locations) {
-        await section(page, 'location-' + location.id);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `${location.id} at ${width}px`).toBeLessThanOrEqual(1);
-      }
     }
     if ([1440, 390, 320].includes(width)) {
-      await stage(page, 'Rekonsiliasi data');
+      await stage(page, 'Final review & binding');
+      await section(page, 'risk');
       await page.screenshot({ path: `.cache/qa/phase2-reconciliation-${width}.png`, fullPage: true });
     }
   }
@@ -242,7 +241,7 @@ test('source dialogs and keyboard navigation retain focus without recording deci
   await expect(source).toContainText('Automatic Reinstatement');
   await page.keyboard.press('Escape');
   await expect(sourceButton).toBeFocused();
-  await stage(page, 'Rekonsiliasi data');
+  await stage(page, 'Final review');
   expect(await page.evaluate(key => localStorage.getItem(key), CASE_STORAGE_KEY)).toBeNull();
 });
 
@@ -292,6 +291,7 @@ test('a failed Word download keeps the current DFS and reports the error', async
   await page.addInitScript(() => { URL.createObjectURL = () => { throw new Error('Download denied'); }; });
   await page.goto('/');
   await stage(page, 'Final review');
+  await section(page, 'readiness');
   await expect(page.getByTestId('export-word')).toBeEnabled();
   await page.getByTestId('export-word').click();
   await expect(page.getByRole('alert').last()).toContainText('Unduhan');

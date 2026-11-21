@@ -116,6 +116,7 @@ test('AI preparation preserves source text, resumes completed work and leaves ma
     await expect(workspace.getByText(/Langkah ini belum menghasilkan saran yang dapat dipakai/)).toBeVisible();
     expect(actualAttempts).toBe(2);
     await expect(workspace.getByTestId('ai-run-step-0')).toHaveCount(0);
+    await page.locator('.stage-link:visible').filter({ hasText: 'Review asuransi' }).click();
     await page.getByTestId('section-tab-wording').click();
     const manualReview=page.locator('#review-'+getCurrentWording(before).items[0].id);
     await expect(manualReview.getByRole('button',{name:'Simpan review wording',exact:true})).toBeEnabled();

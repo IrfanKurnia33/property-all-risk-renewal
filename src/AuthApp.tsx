@@ -12,6 +12,7 @@ import { clearAuthStorage, publishableKey, supabase, supabaseUrl } from './supab
 import { useServerCase } from './useServerCase.ts';
 import { CASE_STORAGE_KEY, LEGACY_CASE_STORAGE_KEY, downloadStoredBackup } from './persistence.ts';
 import { CaseAssignments, CaseCreation } from './CaseManagement.tsx';
+import { WorkspaceSettings } from './WorkspaceSettings.tsx';
 import type { RenewalCase } from './domain.ts';
 
 const AiWorkspace=lazy(()=>import('./AiWorkspace.tsx').then(module=>({default:module.AiWorkspace})));
@@ -58,33 +59,39 @@ export default function AuthApp() {
   </main></div>;
 }
 function SignedIn({session,onLogout,onExpired}:{session:Session;onLogout:()=>void;onExpired:()=>void}) {
-  const [selected,setSelected]=useState<string|null>(null);
-  if(selected)return <OpenCase key={selected} session={session} caseId={selected} onBack={()=>setSelected(null)} onLogout={onLogout} onExpired={onExpired} />;
-  return <CaseList session={session} onSelect={setSelected} onLogout={onLogout} onExpired={onExpired} />;
+  const [selected,setSelected]=useState<string|null>(null),[settings,setSettings]=useState(false);
+  if(settings)return <WorkspaceSettings session={session} onBack={()=>setSettings(false)} onLogout={onLogout} onExpired={onExpired} />;
+  if(selected)return <OpenCase key={selected} session={session} caseId={selected} onBack={()=>setSelected(null)} onWorkspaceSettings={()=>setSettings(true)} onLogout={onLogout} onExpired={onExpired} />;
+  return <CaseList session={session} onSelect={setSelected} onWorkspaceSettings={()=>setSettings(true)} onLogout={onLogout} onExpired={onExpired} />;
 }
-function CaseList({session,onSelect,onLogout,onExpired}:{session:Session;onSelect:(id:string)=>void;onLogout:()=>void;onExpired:()=>void}) {
+function CaseList({session,onSelect,onWorkspaceSettings,onLogout,onExpired}:{session:Session;onSelect:(id:string)=>void;onWorkspaceSettings:()=>void;onLogout:()=>void;onExpired:()=>void}) {
   const [creationDirty,setCreationDirty]=useState(false);
-  const [cases,setCases]=useState<CaseSummary[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[reload,setReload]=useState(0);
+  const [cases,setCases]=useState<CaseSummary[]>([]),[hasBrokerWorkspace,setHasBrokerWorkspace]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[reload,setReload]=useState(0);
   useEffect(()=>{
     const active=new AbortController();setLoading(true);setError('');
     void supabase!.auth.getSession().then(({data})=>{
       if(!data.session || data.session.user.id!==session.user.id)throw new RequestError(401,'INVALID_SESSION','Sesi berakhir.');
-      return apiRequest<{cases:CaseSummary[]}>({url:supabaseUrl!,publishableKey:publishableKey!,token:data.session.access_token,path:'cases',signal:active.signal});
-    }).then(result=>{if(!active.signal.aborted)setCases(result.cases);}).catch(cause=>{
+      return Promise.all([
+        apiRequest<{cases:CaseSummary[]}>({url:supabaseUrl!,publishableKey:publishableKey!,token:data.session.access_token,path:'cases',signal:active.signal}),
+        apiRequest<{workspaces:{workspaceId:string}[]}>({url:supabaseUrl!,publishableKey:publishableKey!,token:data.session.access_token,path:'case-setup',signal:active.signal})
+          .catch(cause=>{if(cause instanceof RequestError && cause.status===403)return null;throw cause;}),
+      ]);
+    }).then(([result,setup])=>{if(!active.signal.aborted){setCases(result.cases);setHasBrokerWorkspace(!!setup?.workspaces.length);}}).catch(cause=>{
       if(active.signal.aborted)return;
       if(cause instanceof RequestError && cause.status===401)onExpired();else setError(cause instanceof Error?cause.message:'Daftar kasus belum tersedia.');
     }).finally(()=>{if(!active.signal.aborted)setLoading(false);});
     return()=>active.abort();
   },[session.user.id,reload]);
-  return <AccountLayout email={session.user.email??''} role={cases[0]?.role} title="Kasus renewal" onLogout={onLogout}><main id="account-main" tabIndex={-1} className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">{t("Property All Risks · pilot fiktif")}</p><h1>{t("Kasus renewal")}</h1><p className="mt-3 text-sm text-text-secondary">{t("Buka kasus yang tersedia untuk akun Anda.")}</p></div><Button onClick={()=>setReload(x=>x+1)} disabled={loading}>{t("Muat ulang daftar")}</Button></div>
+  const role=hasBrokerWorkspace || cases.some(item=>item.role==='broker')?'broker':cases[0]?.role;
+  return <AccountLayout email={session.user.email??''} role={role} title="Kasus renewal" onWorkspaceSettings={role==='broker'?()=>{if(!creationDirty || confirm(t("Buang isian kasus baru yang belum disimpan?")))onWorkspaceSettings();}:undefined} onLogout={onLogout}><main id="account-main" tabIndex={-1} className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">{t("Property All Risks · pilot fiktif")}</p><h1>{t("Kasus renewal")}</h1><p className="mt-3 text-sm text-text-secondary">{t("Buka kasus yang tersedia untuk akun Anda.")}</p></div><Button onClick={()=>setReload(x=>x+1)} disabled={loading}>{t("Muat ulang daftar")}</Button></div>
     {error && <p role="alert" className="rounded-lg border border-status-blocked-fg/20 bg-status-blocked-bg p-4 text-sm text-status-blocked-fg">{t(error)}</p>}
     {loading?<p role="status">{t("Memuat kasus…")}</p>:cases.length?<div className="grid gap-4 md:grid-cols-2">{cases.map(c=><button type="button" key={c.caseId} className="group min-w-0 rounded-lg border border-border-subtle bg-surface p-6 text-left transition-colors hover:bg-surface-subtle focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus-ring motion-reduce:transition-none" onClick={()=>{if(!creationDirty || confirm(t("Buang isian kasus baru yang belum disimpan?")))onSelect(c.caseId);}}><span className="block text-sm text-text-secondary">{c.caseId} · {c.role==='broker'?'Broker':t('Klien')}</span><strong className="my-3 block font-heading text-xl">{c.clientName}</strong><span className="text-sm font-medium text-link">{t("Buka kasus →")}</span></button>)}</div>:<div className="rounded-lg border border-border-subtle bg-surface p-6"><h2>{t("Belum ada kasus yang dapat dibuka")}</h2><p className="mt-3 text-sm text-text-secondary">{t("Klien dapat membuka kasus setelah broker memublikasikan proposal. Untuk penugasan akun, hubungi pengelola.")}</p></div>}
     <CaseCreation session={session} onCreated={onSelect} onExpired={onExpired} onDirtyChange={setCreationDirty} /><Backup />
   </main></AccountLayout>;
 }
-function OpenCase({session,caseId,onBack,onLogout,onExpired}:{session:Session;caseId:string;onBack:()=>void;onLogout:()=>void;onExpired:()=>void}) {
+function OpenCase({session,caseId,onBack,onWorkspaceSettings,onLogout,onExpired}:{session:Session;caseId:string;onBack:()=>void;onWorkspaceSettings:()=>void;onLogout:()=>void;onExpired:()=>void}) {
   const server=useServerCase(session,caseId,onExpired),view=server.view;
-  const controls={email:session.user.email??'',pending:server.busy,conflict:server.conflict,retryAvailable:server.retryAvailable,onBack,onLogout,onReload:server.load,onRetry:server.retry,onExport:server.exportDocument,onUpload:server.upload,onDownloadDocument:server.downloadEvidence,
+  const controls={email:session.user.email??'',pending:server.busy,conflict:server.conflict,retryAvailable:server.retryAvailable,onBack,onWorkspaceSettings,onLogout,onReload:server.load,onRetry:server.retry,onExport:server.exportDocument,onUpload:server.upload,onDownloadDocument:server.downloadEvidence,
     aiPanel:view?.role==='broker'?<AiAssistance state={view.state} server={server}/>:undefined,
     caseAccessPanel:view?.role==='broker'?(onSaved:()=>void)=><CaseAssignments session={session} caseId={caseId} lockVersion={view.state.lockVersion} busy={server.busy || server.conflict || server.retryAvailable} onSave={server.assignClients} onSaved={onSaved} onExpired={onExpired}/>:undefined};
   if(!view)return <AccountLayout email={session.user.email??''} title="Memuat kasus" onBack={onBack} onLogout={onLogout}><main id="account-main" tabIndex={-1} className="space-y-5 p-8"><h1>{t("Memuat kasus")}</h1>{server.error?<p role="alert">{t(server.error)}</p>:<p role="status">{t("Mengambil versi dari server…")}</p>}<Button onClick={()=>void server.load()} disabled={server.busy}>{t("Coba lagi")}</Button></main></AccountLayout>;
