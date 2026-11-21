@@ -1,8 +1,8 @@
 # Supabase backend handoff
 
-Updated 21 November 2026. Phases 4–5 implement the authenticated manual workflow and optional broker-only AI source review: case creation/assignment, historical onboarding, private uploads, focused client proposals, three editable Word templates and recorded binding. The normal Vite build uses Supabase; the previous local simulation is isolated behind an explicit test build flag. Phase U1 adds a four-stage broker navigation, workspace settings, scoped membership capabilities and immutable Standard T&C versions. Its migration and Edge Function changes are local and have not been deployed. Live AI text passed; live image assistance encountered provider errors/rate limiting and remains unverified.
+Updated 21 November 2026. Phases 4–5 implement the authenticated manual workflow and broker-only AI source review: case creation/assignment, historical onboarding, private uploads, focused client proposals, three editable Word templates and recorded binding. The normal Vite build uses Supabase; the previous local simulation is isolated behind an explicit test build flag. Phase U1 adds a four-stage broker navigation, workspace settings, scoped membership capabilities and immutable Standard T&C versions. Phase U2 makes cited clause review the Renewal materials entry task and adds workspace-source provenance and per-finding review records. U1/U2 migrations and Edge Function changes are local and have not been deployed. Live AI text passed; live image assistance encountered provider errors/rate limiting and remains unverified.
 
-The earlier frontend presentation revisions added English/Indonesian localization, section tabs, a sticky header/context panel and a sidebar account menu. Phase U1 includes backend authorization and immutable storage, so deployment requires the new migration and Edge Function as well as the frontend.
+The earlier frontend presentation revisions added English/Indonesian localization, section tabs, a sticky header/context panel and a sidebar account menu. U1/U2 include backend authorization and immutable storage, so deployment requires both migrations, the updated Edge Function and frontend.
 
 ## Deployed foundation
 
@@ -17,6 +17,7 @@ The earlier frontend presentation revisions added English/Indonesian localizatio
 - Guarded QS, proposal and DFS Word generation in the hosted Edge runtime. QS/DFS stay broker-private; assigned clients receive only an explicitly published proposal artifact through a separately authorized download route.
 - Broker-private AI batches, steps, attempt counts and human reviews. The Phase 5 migration adds six service-only functions for source validation, idempotency, workspace budgets/leases and review; AI operations never mutate the renewal case.
 - Phase U1's local migration adds explicit workspace Superadmin and delegated Standard T&C capabilities, an immutable membership-change audit trail, and versioned private PDF/DOCX Standard T&C uploads. It does not infer a Superadmin from broker membership; the workspace owner must explicitly provision one.
+- Phase U2's local migration extends source provenance to finalized workspace Standard T&C versions and adds immutable, idempotent clause-finding decisions. AI batches still require explicit broker consent and never mutate renewal state.
 
 The pure domain, decimal calculations and Word builders live in `supabase/functions/_shared/`. Browser-facing `src/domain.ts` and `src/decimal.ts` re-export the same implementation; `src/downloads.ts` keeps only browser download and summary behavior. Do not create a second server copy of the rules.
 
@@ -58,12 +59,12 @@ The desktop sidebar contains the four broker workflow stages. Horizontal tabs be
 
 | Broker stage | Sections |
 | --- | --- |
-| Renewal materials | QS overview; Document sources; Terms & premium; AI assistance; Case access |
+| Renewal materials | AI clause review; QS overview; Document sources; Terms & premium; Case access |
 | Insurer review | Panel overview; Record response; Wording; Terms & premium |
 | Client proposal | Published proposal, publication and proposal Word download in one view |
 | Final review & binding | Risk reconciliation (all locations); DFS readiness; Binding; Session notes |
 
-Use **Document sources** for uploads and **Case access** to assign existing client accounts. Wording review remains available under **Insurer review**; Standard T&C workspace sources are managed separately from case evidence. Insurers remain external parties; brokers record their responses under **Insurer review → Record response**. There is no insurer login or role picker in the authenticated workflow.
+Use **AI clause review** to compare the latest eligible prior Final Slip with the latest finalized workspace Standard T&C version; the broker can change either source before local preparation. Use **Document sources** for case uploads and **Case access** to assign existing client accounts. Wording review remains available under **Insurer review**; Standard T&C sources are managed separately from case evidence. Insurers remain external parties; brokers record their responses under **Insurer review → Record response**. There is no insurer login or role picker in the authenticated workflow.
 
 Assigned clients have their own restricted workspace with **Proposal**, **Location data**, **Renewal decisions** and **Response history** tabs. Confirm current-period locations before recording proposal acceptance and renewal instruction as separate actions. Client responses remain subject to the existing version and readiness checks.
 
@@ -110,11 +111,13 @@ All routes below are relative to `/functions/v1/renewal-api`. Send `apikey: <pub
 | `POST /cases/:caseId/documents/:documentId/download` | Short-lived link for authorized finalized evidence |
 | `POST /cases/:caseId/exports` | Broker-only guarded QS, proposal or DFS export and immutable manifest |
 | `POST /cases/:caseId/proposals/:proposalId/document` | Broker or assigned client retrieves an existing published proposal artifact; no private manifest |
-| `GET /cases/:caseId/ai` | Broker-private source selections, persisted AI steps, reviews and workspace budget |
+| `GET /cases/:caseId/ai` | Broker-private source catalogue, persisted AI steps/reviews and workspace budget |
+| `GET /cases/:caseId/ai/sources/:versionId/download` | Short-lived download for a finalized Standard T&C version in the broker's workspace |
 | `GET /cases/:caseId/ai/provider-status` | Broker-only sanitized OpenRouter key/account status, without inference |
-| `POST /cases/:caseId/ai/batches` | Persist selected finalized-source excerpts/pages without calling AI |
+| `POST /cases/:caseId/ai/batches` | Persist selected finalized-source excerpts/pages without calling AI; clause review requires both source families |
 | `POST /cases/:caseId/ai/batches/:batchId/steps/:index` | Execute one pending step under workspace budget/concurrency limits, or return its terminal result |
 | `POST /cases/:caseId/ai/batches/:batchId/steps/:index/review` | Attributed human review/dismissal, separate from canonical renewal facts |
+| `POST /cases/:caseId/ai/batches/:batchId/steps/:index/findings/:findingIndex/review` | Immutable accepted/rejected/follow-up decision for a completed clause finding |
 
 Command envelope:
 
@@ -186,6 +189,6 @@ It disables the QA accounts in `finally`. Immutable fictional cases, evidence an
 
 File checks support PDF, DOCX, XLSX, JPEG, PNG and WebP up to 10 MiB. Office archives have entry-count, individual expanded-size and total expanded-size limits, actual streaming decompression limits, path checks, main-part checks and rejection of encryption/macros. Image checks establish signatures, not full decoding or sanitization. File inspection is not malware scanning or a full PDF/OOXML validator. Keep this phase restricted to fictional pilot documents.
 
-Phase 5 adds four RLS-protected AI tables and six service-only functions through `20261119200000_ai_assistance.sql`, with source-segment provenance distinguishing browser inputs from manual citations. The authenticated `renewal-api` uses the owner-provisioned `OPENROUTER_API_KEY` Edge Function secret. The [AI guide](ai-assistance.md) documents local preparation, exact request bounds, free-only/private routing, resume semantics and verification. AI results/reviews never update canonical renewal state. Post-deployment hardening checks verify all 17 public tables have RLS, service-only command/setup/AI functions, private Storage and disabled signup.
+Phase 5 adds four RLS-protected AI tables and six service-only functions through `20261119200000_ai_assistance.sql`; Phase U2 adds one protected finding-review table and one service-only RPC in `20261121150000_ai_clause_review.sql`. Source-segment provenance distinguishes browser inputs from manual citations and permits workspace Standard T&C excerpts without converting them into case evidence. The authenticated `renewal-api` uses the owner-provisioned `OPENROUTER_API_KEY` Edge Function secret. The [AI guide](ai-assistance.md) documents local preparation, exact request bounds, free-only/private routing, resume semantics and verification. AI results/reviews never update canonical renewal state. Post-deployment hardening checks verify all 21 public tables have RLS, service-only command/setup/AI functions, private Storage and disabled signup.
 
 Raw-source sharing beyond published proposals, abandoned-upload/export cleanup and production recovery/SMTP remain deferred. The manual lifecycle, all three Word templates and optional AI assistance are implemented. Researcher-led usability testing and desktop Microsoft Word rendering remain unperformed.

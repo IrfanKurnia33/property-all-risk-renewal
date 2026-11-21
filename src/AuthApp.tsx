@@ -17,8 +17,7 @@ import type { RenewalCase } from './domain.ts';
 
 const AiWorkspace=lazy(()=>import('./AiWorkspace.tsx').then(module=>({default:module.AiWorkspace})));
 function AiAssistance({state,server}:{state:RenewalCase;server:ReturnType<typeof useServerCase>}) {
-  const [opened,setOpened]=useState(false);
-  return <details className="min-w-0 rounded-lg border border-border-subtle bg-surface p-4 sm:p-5" onToggle={e=>{if(e.currentTarget.open)setOpened(true);}}><summary className="min-h-11 cursor-pointer py-2 font-heading text-base font-semibold">{t("Bantuan AI untuk sumber renewal · opsional")}</summary>{opened && <div className="mt-5"><Suspense fallback={<p role="status" className="text-sm text-text-secondary">Memuat alat persiapan dokumen…</p>}><AiWorkspace key={state.id} state={state} request={server.requestAi} loadEvidence={server.readEvidence} busy={server.busy || server.conflict || server.retryAvailable}/></Suspense></div>}</details>;
+  return <Suspense fallback={<p role="status" className="text-sm text-text-secondary">{t("Memuat tinjauan klausul AI…")}</p>}><AiWorkspace key={state.id} state={state} request={server.requestAi} loadEvidence={server.readEvidence} busy={server.busy || server.conflict || server.retryAvailable}/></Suspense>;
 }
 
 function hasBackup(){try{return !!(localStorage.getItem(CASE_STORAGE_KEY)||localStorage.getItem(LEGACY_CASE_STORAGE_KEY));}catch{return false;}}

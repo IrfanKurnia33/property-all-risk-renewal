@@ -1,20 +1,20 @@
 # AI source review in Rekonvia
 
-Updated 20 November 2026. The optional AI panel is available to authenticated brokers under **Renewal materials → AI assistance** (**Bahan renewal → Bantuan AI**). It helps inspect selected source excerpts and page images. It does not change the case, accept an amendment, confirm client data, record insurer acceptance or clear readiness checks. Clients cannot access its routes, inputs or results.
+Updated 21 November 2026. **Renewal materials → AI clause review** (**Bahan renewal → Tinjauan klausul AI**) is the broker's entry task. It compares an eligible prior Final Slip with an immutable, finalized workspace Standard T&C version and prepares a cited review queue. Other source-preparation and extraction tools remain available as secondary options. AI does not change the case, accept an amendment, confirm client data, record insurer acceptance or clear readiness checks. Clients cannot access its routes, inputs or results.
 
 The interface defaults to English. Use the header's **EN / ID** toggle to switch languages; the preference is saved in this browser. Source excerpts, original files, AI results and entered evidence retain their original text. The instructions below use the English labels.
 
 ## Use the panel
 
-1. Open **Renewal materials → Document sources**. Record a source version, then upload and finalize a fictional source file. Check its type, period, option and version.
-2. Select the **AI assistance** tab. Expand **AI assistance for renewal sources · optional**, then **Prepare a new source group**. Choose a saved source and select **Open source in browser**. The browser downloads the authorized original, verifies its size/hash and prepares text locally. This step does not call OpenRouter.
-3. Open each relevant paragraph, table cell, spreadsheet row or PDF page and select the excerpts. Preserve the prior agreed wording, outgoing QS and insurer reply as separate source versions. Extraction order can differ from the original layout; compare against the original.
-4. For a scan or photograph, select its page and orientation, then **Show page preview**. Inspect the image before selecting it. The stored original is unchanged. Select comparison text from the prior slip or QS when reviewing a scanned reply.
-5. Choose **Compare excerpts and identify differences** or **Compile findings from selected sources**, check the selection/omissions and confirm that it contains only fictional material cleared for external AI processing. **Save selection group** saves the inputs without invoking a model.
-6. Select **Process step** for each pending step explicitly. The text step uses the selected text. Each image step contains one image plus the selected text context. Image steps cannot compare against other image steps or unseen results. Review those differences manually.
-7. Check every finding against its cited source. The copy action copies the selected source excerpt verbatim; AI-proposed wording remains a read-only suggestion. Record the broker's review or dismissal, then use the existing manual forms for any renewal decision. Agreed baseline wording stays unchanged; amendments are recorded separately.
+1. Make sure a prior Final Slip has a finalized file in **Document sources**, and that the workspace Superadmin has uploaded and finalized the applicable Standard T&C version in **Workspace settings**. Eligible prior slips must be agreed or issued and end before the current renewal period.
+2. Open **AI clause review**. The latest eligible prior slip and latest finalized Standard T&C version are selected by default; confirm both names and versions, or change either selection.
+3. Select **Prepare source pair**. The browser downloads the authorized originals, verifies size and SHA-256, then prepares text locally. When the complete text from both files fits the existing section/character limits, it is selected for you. Otherwise, open the relevant sections from both sources and select excerpts manually. This step does not call OpenRouter.
+4. For a scan, select its page and orientation, then **Show page preview**. Inspect before selecting. A clause-review group still requires text from both sources; a selected image supplements the text context and does not replace either cited source.
+5. Check every selected passage and the displayed omission count. Confirm that the selection contains only fictional material cleared for external AI processing. **Save selection group** stores the selection without invoking a model.
+6. Select **Process step** for each pending step explicitly. Each finding must cite selected sections from both source families and use one of five statuses: new/strengthened, removed, modified, unchanged or unresolved. Image steps contain one image and selected text context; comparisons between image pages remain unsupported.
+7. Check every finding against both cited originals. The copy action copies a selected source excerpt verbatim; AI-proposed wording remains read-only. For each finding, record **Accept as a draft candidate**, **Reject suggestion** or **Follow up**, with a note. These immutable review records do not change case wording or canonical renewal state; acceptance is not approval. Record any resulting renewal decision through the existing manual forms.
 
-Review annotations concern the AI suggestion only. They do not establish that a quotation, clause, client confirmation or insurer response is correct. Structurally valid citations do not prove factual accuracy. Browser-prepared excerpts are labeled `browser-ai-input`, not independently verified transcriptions.
+Per-finding decisions concern the AI suggestion only. They do not establish that a quotation, clause, client confirmation or insurer response is correct. Structurally valid citations do not prove factual accuracy. Browser-prepared excerpts are labeled `browser-ai-input`, not independently verified transcriptions. If either source is unavailable, AI is unavailable or the budget is exhausted, continue with Document sources and the manual wording review.
 
 ## Limits and coverage
 
@@ -26,6 +26,8 @@ Review annotations concern the AI suggestion only. They do not establish that a 
 | PDF preparation | First 100 pages; remaining pages explicitly unprepared |
 | XLSX preparation | 50 sheets; reject workbooks above 50,000 cell records |
 | Selected batch | 40 sections, 40,000 text characters, at most five image pages |
+| Clause-review source pair | At least one selected text excerpt from an eligible prior Final Slip and one from a finalized workspace Standard T&C |
+| Clause-review finding | One of five clause categories, a recommended next step, and citations from both selected source families |
 | Provider request | One text request or one image with selected text context |
 | Prepared image | JPEG/PNG, at most 1.5 MB; preview edge at most 1,600 pixels |
 | Original raster preparation | At most 25 megapixels before rendering |
@@ -50,7 +52,7 @@ PDF.js prepares PDF text and renders selected pages. DOCX preparation reads para
 
 `OPENROUTER_API_KEY` belongs only in **Supabase Edge Function Secrets**. Do not put it in `.env.local`, any `VITE_` variable, frontend Vercel configuration, source files or browser requests. An owner-added secret is sufficient; no browser credential setup is needed.
 
-The authenticated `renewal-api` verifies the user's JWT, case access and broker membership. Database functions independently recheck membership, serialize workspace reservations, count failed attempts and deduplicate steps. Browser roles cannot execute these functions directly or write AI tables. Private source downloads use the existing authorized, short-lived URL flow.
+The authenticated `renewal-api` verifies the user's JWT, case access and broker membership. Database functions independently recheck membership, serialize workspace reservations, count failed attempts and deduplicate steps. Browser roles cannot execute these functions directly or write AI tables. Case files use the existing authorized download flow; workspace Standard T&C files are signed only for a matching broker workspace and finalized version.
 
 The server fixes the model to `openrouter/free`, requests JSON output and accepts only bounded findings with valid selected-source IDs. Document text/images are untrusted content. No tool execution, client-selected models/providers, paid PDF/OCR plugins, automatic model fallback or automatic retry loop is provided.
 
@@ -66,15 +68,17 @@ All routes require the existing `apikey` header and the signed-in broker's beare
 
 | Route | Behavior |
 | --- | --- |
-| `GET /ai` | Refresh expired leases; return recent batches, steps, reviews and workspace budget |
+| `GET /ai` | Refresh expired leases; return recent batches, per-step/per-finding reviews, workspace budget and authorized source catalogue |
+| `GET /ai/sources/:versionId/download` | Return a short-lived URL and hash/size metadata for one finalized Standard T&C version in this broker's workspace |
 | `GET /ai/provider-status` | Read-only key/account status; no inference |
-| `POST /ai/batches` | Validate selected finalized sources, save excerpts/locators and pending steps |
+| `POST /ai/batches` | Validate selected finalized sources, save excerpts/locators and pending steps; clause review requires both eligible source families |
 | `POST /ai/batches/:batchId/steps/:index` | Reserve budget and execute a pending step once; terminal steps return existing results |
 | `POST /ai/batches/:batchId/steps/:index/review` | Add an attributed human review/dismissal; never a canonical case action |
+| `POST /ai/batches/:batchId/steps/:index/findings/:findingIndex/review` | Append an idempotent, immutable accepted/rejected/follow-up decision for one completed clause finding |
 
-Batch input is exactly `{ idempotencyKey, purpose: 'extract' | 'compare', sections, unprocessedCount }`. Each section has `{ id, documentVersionId, sha256, locator, kind }`, plus `text` only for a text section. The hash must match a finalized source belonging to that case. This proves the original source identity; the server does not independently re-extract browser text or prove an image is a faithful derivative.
+Batch input is exactly `{ idempotencyKey, purpose: 'extract' | 'compare' | 'clause-review', sections, unprocessedCount }`. Each section has `{ id, documentVersionId, sha256, locator, kind, sourceType }`, plus `text` only for a text section; `sourceType` is `case` or `workspace-standard-terms`. Case hashes must match finalized sources belonging to that case; Standard T&C hashes must match a finalized version in the same workspace. This proves original-source identity; the server does not independently re-extract browser text or prove an image is a faithful derivative.
 
-Execution input is `{ idempotencyKey }`, plus a bounded local JPEG/PNG `imageDataUrl` for a pending image step. Reviews accept `{ idempotencyKey, decision: 'reviewed' | 'dismissed', note }`. Unknown fields and model/provider overrides are rejected. Expected provider failures return a persisted `failed` step; role, validation, concurrency and budget failures retain their HTTP status.
+Execution input is `{ idempotencyKey }`, plus a bounded local JPEG/PNG `imageDataUrl` for a pending image step. Per-step reviews accept `{ idempotencyKey, decision: 'reviewed' | 'dismissed', note }`; clause-finding reviews accept `{ idempotencyKey, decision: 'accepted' | 'rejected' | 'follow-up', note }`. Unknown fields and model/provider overrides are rejected. Expected provider failures return a persisted `failed` step; role, validation, concurrency and budget failures retain their HTTP status.
 
 ## Verification
 

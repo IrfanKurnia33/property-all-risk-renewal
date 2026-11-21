@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { clientView } from '../supabase/functions/_shared/api-contract.ts';
+import type { AiHistory, AiSourceOption } from '../supabase/functions/_shared/ai-contract.ts';
 import { proposalReadyCase } from './fixtures.ts';
 
 async function accountTrigger(page: Page) {
@@ -11,7 +12,7 @@ async function accountTrigger(page: Page) {
 }
 
 // Presentation fixtures never create hosted users, mutate cases or call an AI provider.
-async function account(page: Page, role: 'broker' | 'client', email = 'qa@example.invalid', superadmin = false) {
+async function account(page: Page, role: 'broker' | 'client', email = 'qa@example.invalid', superadmin = false, clauseReview = false) {
   await page.addInitScript(() => {
     localStorage.setItem('ruang-renewal.tour.v1.broker', 'seen');
     localStorage.setItem('ruang-renewal.tour.v1.client', 'seen');
@@ -20,6 +21,25 @@ async function account(page: Page, role: 'broker' | 'client', email = 'qa@exampl
   const user = { id: 'presentation-' + role, email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-11-19T00:00:00Z' };
   const writes: string[] = [];
   let membershipChanges: unknown;
+  const prior=(documentVersionId:string,version:number,name:string):AiSourceOption=>({sourceType:'case',documentVersionId,version,name,mimeType:'application/pdf',byteSize:100,sha256:'a'.repeat(64),documentType:'prior-slip',status:'agreed',periodStart:'2025-01-01',periodEnd:'2025-12-31',createdAt:'2025-01-01T00:00:00Z'});
+  const standard=(documentVersionId:string,version:number):AiSourceOption=>({sourceType:'workspace-standard-terms',documentVersionId,version,name:'Brokerage Standard T&C',mimeType:'application/pdf',byteSize:100,sha256:'b'.repeat(64),status:'finalized',createdAt:'2025-01-01T00:00:00Z'});
+  const priorVersions=[prior('prior-v1',1,'Final Slip v1'),prior('prior-v2',2,'Final Slip v2')];
+  const termsVersions=[standard('terms-v3',3),standard('terms-v2',2)];
+  const aiHistory:AiHistory={
+    batches:clauseReview?[{
+      id:'qa-clause-batch',purpose:'clause-review',sections:[
+        {id:'prior-section',documentVersionId:'prior-v2',sourceType:'case',sha256:'a'.repeat(64),locator:'Halaman 2',kind:'text',text:'FIKTIF: wording dasar.'},
+        {id:'terms-section',documentVersionId:'terms-v3',sourceType:'workspace-standard-terms',sha256:'b'.repeat(64),locator:'Klausul 4',kind:'text',text:'FIKTIF: wording standar.'},
+      ],unprocessedCount:0,createdAt:'2026-11-20T00:00:00Z',steps:[{
+        index:0,sectionIds:['prior-section','terms-section'],status:'completed',result:{
+          summary:'Tinjau perbedaan yang didukung kutipan.',findings:[{kind:'difference',category:'modified',title:'Klausul berubah',
+            detail:'Kedua kutipan memiliki wording yang berbeda.',sourceIds:['prior-section','terms-section'],recommendedAction:'Cocokkan versi dan periode sumber.',proposedText:null}],warnings:[],
+        },errorCode:null,review:null,findingReviews:[],attemptedAt:'2026-11-20T00:00:00Z',
+      }],
+    }]:[],
+    budget:{attemptsToday:0,limit:40,inFlightUntil:null},
+    sources:{caseDocuments:priorVersions,priorSlips:[...priorVersions].reverse(),standardTerms:termsVersions},
+  };
   await page.route('**/auth/v1/token**', route => route.fulfill({ json: { access_token: 'test-session', refresh_token: 'test-refresh', token_type: 'bearer', expires_in: 3600, user } }));
   await page.route('**/auth/v1/logout**', route => route.fulfill({ status: 204 }));
   await page.route('**/functions/v1/renewal-api/**', route => {
@@ -41,7 +61,12 @@ async function account(page: Page, role: 'broker' | 'client', email = 'qa@exampl
       return route.fulfill({ json: { updated: 1 } });
     }
     if (path.endsWith('/assignments')) return route.fulfill({ json: { workspaceId: 'qa', lockVersion: state.lockVersion, clients: [], clientUserIds: [] } });
-    if (path.endsWith('/ai')) return route.fulfill({ json: { batches: [], budget: { attemptsToday: 0, limit: 40, inFlightUntil: null } } });
+    if (path.endsWith('/ai') && request.method()==='GET') return route.fulfill({ json: aiHistory });
+    if (path.includes('/ai/batches/') && /\/findings\/\d+\/review$/.test(path) && request.method()==='POST') {
+      const input=request.postDataJSON(),step=aiHistory.batches[0]?.steps[0];
+      if(step)step.findingReviews=[{findingIndex:0,decision:input.decision,note:input.note,reviewedBy:user.id,at:'2026-11-20T01:00:00Z'}];
+      return route.fulfill({json:{step}});
+    }
     return route.fulfill({ json: role === 'broker' ? { role, state } : { role, ...clientView(state, user.id) } });
   });
   await page.goto('/');
@@ -52,6 +77,24 @@ async function account(page: Page, role: 'broker' | 'client', email = 'qa@exampl
   await expect(page.getByRole('heading', { name: state.clientName, exact: true })).toBeVisible();
   return { state, writes, membershipChanges: () => membershipChanges };
 }
+
+test('AI clause review is the broker entry task and stores a separate finding decision', async ({ page }) => {
+  const { state,writes } = await account(page, 'broker', 'qa@example.invalid', false, true);
+  await expect(page.getByTestId('section-tab-ai')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'AI-assisted renewal clause review', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Previous Final Slip', { exact: true })).toHaveValue('prior-v2');
+  await expect(page.getByLabel('Workspace Standard T&C', { exact: true })).toHaveValue('terms-v3');
+  await expect(page.getByText('New or strengthened', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Modified', { exact: true })).toBeVisible();
+  const finding=page.getByTestId('ai-finding-review-0');
+  await finding.getByLabel('Broker decision for this finding', { exact: true }).selectOption('follow-up');
+  await finding.getByLabel('Reason or follow-up question', { exact: true }).fill('Check the finalized source pages and exact period.');
+  await finding.getByRole('checkbox').check();
+  await finding.getByRole('button', { name: 'Save broker decision', exact: true }).click();
+  await expect(finding).toContainText('Follow-up required');
+  await expect(finding).toContainText('Wording and renewal status are unchanged');
+  expect(writes).toEqual([`cases/${state.id}/ai/batches/qa-clause-batch/steps/0/findings/0/review`]);
+});
 
 test('broker sections preserve drafts and locale, with keyboard tab navigation', async ({ page }) => {
   const { writes } = await account(page, 'broker');
@@ -84,8 +127,8 @@ test('broker sections preserve drafts and locale, with keyboard tab navigation',
   await page.keyboard.press('End');
   await expect(page.getByTestId('section-tab-access')).toBeFocused();
   await page.keyboard.press('Home');
-  await expect(page.getByTestId('section-tab-qs')).toBeFocused();
-  expect(await page.getByTestId('section-tab-qs').evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
+  await expect(page.getByTestId('section-tab-ai')).toBeFocused();
+  expect(await page.getByTestId('section-tab-ai').evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
   page.once('dialog', dialog => dialog.dismiss());
   await page.locator('.stage-link:visible').filter({ hasText: 'Review asuransi' }).click();
   await expect(page.getByTestId('section-tab-qs')).toBeVisible();

@@ -131,22 +131,29 @@ export function useServerCase(session:Session,caseId:string,onExpired:()=>void) 
     if(current.current?.role!=='broker' || !(path===`cases/${caseId}/ai` || path.startsWith(`cases/${caseId}/ai/`)))throw new RequestError(403,'BROKER_REQUIRED','Bantuan AI tersedia untuk broker pada kasus ini.');
     try{return await request<T>(path,input);}catch(cause){if(cause instanceof RequestError && cause.status===401)onExpired();throw cause;}
   }
-  async function readEvidence(id:string):Promise<Blob> {
+  async function readEvidence(id:string,sourceType:'case'|'workspace-standard-terms'='case'):Promise<Blob> {
     const state=current.current?.role==='broker'?current.current.state:null;
-    const document=state?.documents.find(d=>d.file?.id===id);
-    if(!document?.file)throw new RequestError(404,'NOT_FOUND','Berkas sumber belum difinalisasi.');
-    let result:{url:string};
-    try{result=await request<{url:string}>(`cases/${caseId}/documents/${id}/download`,{});}
+    const document=sourceType==='case'?state?.documents.find(d=>d.id===id):undefined;
+    if(sourceType==='case' && !document?.file)throw new RequestError(404,'NOT_FOUND','Berkas sumber belum difinalisasi.');
+    let result:{url:string;mimeType?:string;byteSize?:number;sha256?:string};
+    try{
+      result=sourceType==='workspace-standard-terms'
+        ?await request<{url:string;mimeType:string;byteSize:number;sha256:string}>(`cases/${caseId}/ai/sources/${encodeURIComponent(id)}/download`)
+        :await request<{url:string}>(`cases/${caseId}/documents/${encodeURIComponent(document!.file!.id)}/download`,{});
+    }
     catch(cause){if(cause instanceof RequestError && cause.status===401)onExpired();throw cause;}
     const signed=new URL(result.url);if(signed.origin!==supabaseUrl)throw new Error('Alamat berkas tidak valid.');
     const active=controller.current!;
     const response=await fetch(signed,{signal:active.signal,cache:'no-store'});
     if(!response.ok)throw new Error('Berkas sumber belum dapat dibaca.');
     const bytes=await response.arrayBuffer();
-    if(bytes.byteLength!==document.file.byteSize || bytes.byteLength>10*1024*1024)throw new Error('Ukuran berkas sumber tidak sesuai.');
+    const expectedSize=sourceType==='case'?document!.file!.byteSize:result.byteSize!;
+    const expectedHash=sourceType==='case'?document!.file!.sha256:result.sha256!;
+    const mimeType=sourceType==='case'?document!.file!.mimeType:result.mimeType!;
+    if(bytes.byteLength!==expectedSize || bytes.byteLength>10*1024*1024)throw new Error('Ukuran berkas sumber tidak sesuai.');
     const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
-    if(hash!==document.file.sha256 || active!==controller.current || active.signal.aborted)throw new Error('Berkas atau sesi berubah. Buka kembali sumber.');
-    return new Blob([bytes],{type:document.file.mimeType});
+    if(hash!==expectedHash || active!==controller.current || active.signal.aborted)throw new Error('Berkas atau sesi berubah. Buka kembali sumber.');
+    return new Blob([bytes],{type:mimeType});
   }
   return {view,error,busy,conflict,retryAvailable,dispatch,load,upload,exportDocument,downloadEvidence,downloadPublishedProposal,assignClients,requestAi,readEvidence,
     retry:async()=>pending.current?perform(pending.current,true):false,clearError:()=>setError('')};

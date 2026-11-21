@@ -1,13 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Actor, RenewalCase } from '../_shared/domain.ts';
 import { ApiError, assertKeys, uuid } from '../_shared/api-contract.ts';
-import { AI_MODEL, aiMessages, parseAiBatch, parseAiReview, validateAiImage, validateAiResult } from '../_shared/ai-contract.ts';
-import type { AiBatch, AiBudget, AiReview, AiSection, AiSourceContext, AiStep } from '../_shared/ai-contract.ts';
+import { AI_MODEL, aiMessages, parseAiBatch, parseAiFindingReview, parseAiReview, validateAiImage, validateAiResult } from '../_shared/ai-contract.ts';
+import type { AiBatch, AiBudget, AiFindingReview, AiReview, AiSection, AiSourceCatalog, AiSourceContext, AiSourceOption, AiStep } from '../_shared/ai-contract.ts';
 
 interface AiContext { service:SupabaseClient; state:RenewalCase; actor:Actor; workspaceId:string }
 interface StepRow { batch_id:string; step_index:number; section_ids:string[]; status:AiStep['status']; result:AiStep['result']; error_code:string|null; attempted_at:string|null; attempt_id:string|null }
 interface ReviewRow { decision:AiReview['decision']; note:string; reviewed_by:string; created_at:string; batch_id:string; step_index:number }
+interface FindingReviewRow { finding_index:number; decision:AiFindingReview['decision']; note:string; reviewed_by:string; created_at:string; batch_id:string; step_index:number }
 interface BatchRow { id:string; request:{purpose:AiBatch['purpose']; sections:AiSection[]; unprocessedCount:number}; created_at:string }
+interface StandardTermsRow { id:string; version:number; display_name:string; mime_type:string; byte_size:number; sha256:string; finalized_at:string; object_path:string }
 
 function checked<T>(result:{data:T;error:{code?:string;message?:string}|null}):T {
   const error=result.error;if(!error)return result.data;
@@ -16,15 +18,45 @@ function checked<T>(result:{data:T;error:{code?:string;message?:string}|null}):T
   if(error.message?.includes('AI_LEASE_EXPIRED'))throw new ApiError(409,'AI_INTERRUPTED');
   if(error.message?.includes('IDEMPOTENCY_CONFLICT'))throw new ApiError(409,'IDEMPOTENCY_CONFLICT');
   if(error.message?.includes('SOURCE_FILE_REQUIRED'))throw new ApiError(422,'SOURCE_FILE_REQUIRED');
+  if(error.message?.includes('AI_CLAUSE_SOURCES_REQUIRED'))throw new ApiError(422,'AI_CLAUSE_SOURCES_REQUIRED');
+  if(error.message?.includes('AI_FINDING_REQUIRED'))throw new ApiError(422,'AI_FINDING_REQUIRED');
+  if(error.message?.includes('INVALID_AI_FINDING_REVIEW'))throw new ApiError(422,'INVALID_AI_FINDING_REVIEW');
   if(error.code==='42501')throw new ApiError(403,'BROKER_REQUIRED');
   if(error.code==='P0002')throw new ApiError(404,'NOT_FOUND');
   if(error.code==='22023')throw new ApiError(422,'INVALID_AI_REQUEST');
   throw new ApiError(500,'AI_DATABASE_ERROR');
 }
 const review=(r:ReviewRow):AiReview=>({decision:r.decision,note:r.note,reviewedBy:r.reviewed_by,at:r.created_at});
-const step=(s:StepRow,r?:ReviewRow):AiStep=>({index:s.step_index,sectionIds:s.section_ids,status:s.status,result:s.result,errorCode:s.error_code,attemptedAt:s.attempted_at,review:r?review(r):null});
+const findingReview=(r:FindingReviewRow):AiFindingReview=>({findingIndex:r.finding_index,decision:r.decision,note:r.note,reviewedBy:r.reviewed_by,at:r.created_at});
+const step=(s:StepRow,r?:ReviewRow,fr:FindingReviewRow[]=[]):AiStep=>({index:s.step_index,sectionIds:s.section_ids,status:s.status,result:s.result,errorCode:s.error_code,attemptedAt:s.attempted_at,review:r?review(r):null,findingReviews:fr.map(findingReview)});
 async function budget(ctx:AiContext):Promise<AiBudget> {
   return checked(await ctx.service.rpc('ai_workspace_budget',{p_workspace:ctx.workspaceId}));
+}
+async function sourceCatalog(ctx:AiContext):Promise<AiSourceCatalog> {
+  const caseDocuments=ctx.state.documents.flatMap(document=>document.file?[{
+    sourceType:'case' as const,documentVersionId:document.id,name:document.name,version:document.version,mimeType:document.file.mimeType,
+    byteSize:document.file.byteSize,sha256:document.file.sha256,documentType:document.type,status:document.status,
+    periodStart:document.periodStart,periodEnd:document.periodEnd,createdAt:document.createdAt,
+  }]:[]);
+  const rows=checked(await ctx.service.from('workspace_standard_terms_versions')
+    .select('id,version,display_name,mime_type,byte_size,sha256,finalized_at,object_path')
+    .eq('workspace_id',ctx.workspaceId).eq('upload_status','finalized').order('version',{ascending:false}).limit(50)) as StandardTermsRow[];
+  const standardTerms:AiSourceOption[]=rows.map(row=>({sourceType:'workspace-standard-terms',documentVersionId:row.id,name:row.display_name,
+    version:row.version,mimeType:row.mime_type,byteSize:row.byte_size,sha256:row.sha256,status:'finalized',createdAt:row.finalized_at}));
+  const priorSlips=caseDocuments.filter(source=>source.documentType==='prior-slip'
+    && (source.status==='agreed'||source.status==='issued') && source.periodEnd<ctx.state.terms.periodStart)
+    .sort((a,b)=>b.periodEnd!.localeCompare(a.periodEnd!) || b.version-a.version || b.createdAt.localeCompare(a.createdAt));
+  return {caseDocuments,priorSlips,standardTerms};
+}
+async function standardTermsDownload(ctx:AiContext,id:string) {
+  if(!uuid.test(id))throw new ApiError(404,'NOT_FOUND');
+  const row=checked(await ctx.service.from('workspace_standard_terms_versions')
+    .select('display_name,mime_type,byte_size,sha256,object_path').eq('id',id).eq('workspace_id',ctx.workspaceId)
+    .eq('upload_status','finalized').maybeSingle()) as Pick<StandardTermsRow,'display_name'|'mime_type'|'byte_size'|'sha256'|'object_path'>|null;
+  if(!row)throw new ApiError(404,'NOT_FOUND');
+  const {data,error}=await ctx.service.storage.from('renewal-documents').createSignedUrl(row.object_path,60);
+  if(error || !data?.signedUrl)throw new ApiError(500,'AI_DATABASE_ERROR');
+  return {url:data.signedUrl,name:row.display_name,mimeType:row.mime_type,byteSize:row.byte_size,sha256:row.sha256};
 }
 async function batches(ctx:AiContext,batchId?:string):Promise<AiBatch[]> {
   let query=ctx.service.from('ai_batches').select('id,request,created_at').eq('case_id',ctx.state.id).order('created_at',{ascending:false}).limit(50);
@@ -32,13 +64,15 @@ async function batches(ctx:AiContext,batchId?:string):Promise<AiBatch[]> {
   const rows=checked(await query) as BatchRow[];
   if(!rows.length)return [];
   const ids=rows.map(b=>b.id);
-  const [steps,reviews]=await Promise.all([
+  const [steps,reviews,findingReviews]=await Promise.all([
     ctx.service.from('ai_steps').select('*').in('batch_id',ids).order('step_index'),
     ctx.service.from('ai_step_reviews').select('batch_id,step_index,decision,note,reviewed_by,created_at').in('batch_id',ids).order('created_at',{ascending:false}),
+    ctx.service.from('ai_finding_reviews').select('batch_id,step_index,finding_index,decision,note,reviewed_by,created_at').in('batch_id',ids).order('created_at',{ascending:false}),
   ]);
-  const ss=checked(steps) as StepRow[],rr=checked(reviews) as ReviewRow[];
+  const ss=checked(steps) as StepRow[],rr=checked(reviews) as ReviewRow[],fr=checked(findingReviews) as FindingReviewRow[];
   return rows.map(b=>({id:b.id,purpose:b.request.purpose,sections:b.request.sections,unprocessedCount:b.request.unprocessedCount,createdAt:b.created_at,
-    steps:ss.filter(s=>s.batch_id===b.id).map(s=>step(s,rr.find(r=>r.batch_id===b.id && r.step_index===s.step_index)))}));
+    steps:ss.filter(s=>s.batch_id===b.id).map(s=>step(s,rr.find(r=>r.batch_id===b.id && r.step_index===s.step_index),
+      fr.filter(r=>r.batch_id===b.id && r.step_index===s.step_index)))}));
 }
 async function boundedJson(response:Response,maxBytes:number):Promise<unknown> {
   const reader=response.body?.getReader();if(!reader)throw new ApiError(422,'AI_INVALID_OUTPUT');
@@ -69,7 +103,7 @@ async function providerResult(sections:AiSection[],purpose:AiBatch['purpose'],so
     if(choice?.message?.refusal)throw new ApiError(422,'AI_REFUSED');
     if(typeof choice?.message?.content!=='string')throw new ApiError(422,'AI_INVALID_OUTPUT');
     let parsed:unknown;try{parsed=JSON.parse(choice.message.content);}catch{throw new ApiError(422,'AI_INVALID_OUTPUT');}
-    try{return validateAiResult(parsed,sections);}catch{throw new ApiError(422,'AI_INVALID_OUTPUT');}
+    try{return validateAiResult(parsed,sections,purpose);}catch{throw new ApiError(422,'AI_INVALID_OUTPUT');}
   }catch(error){
     if(controller.signal.aborted)throw new ApiError(504,'AI_TIMEOUT');
     if(error instanceof ApiError)throw error;
@@ -97,18 +131,29 @@ export async function handleAi(ctx:AiContext,method:string,parts:string[],input?
   if(ctx.actor.role!=='broker')throw new ApiError(403,'BROKER_REQUIRED');
   if(method==='GET' && parts.length===0){
     checked(await ctx.service.rpc('refresh_ai_leases',{p_case_id:ctx.state.id,p_actor:ctx.actor.id}));
-    return {batches:await batches(ctx),budget:await budget(ctx)};
+    return {batches:await batches(ctx),budget:await budget(ctx),sources:await sourceCatalog(ctx)};
   }
+  if(method==='GET' && parts.length===3 && parts[0]==='sources' && parts[2]==='download')
+    return standardTermsDownload(ctx,parts[1]);
   if(method==='GET' && parts.length===1 && parts[0]==='provider-status')return status();
   if(method==='POST' && parts.length===1 && parts[0]==='batches') {
     const parsed=parseAiBatch(input);
+    const sources=await sourceCatalog(ctx);
     if(parsed.sections.some(section=>section.kind==='image' && !['application/pdf','image/jpeg','image/png','image/webp'].includes(
-      ctx.state.documents.find(d=>d.id===section.documentVersionId)?.file?.mimeType??'')))throw new ApiError(422,'INVALID_AI_IMAGE_SOURCE');
+      (section.sourceType==='workspace-standard-terms'?sources.standardTerms.find(source=>source.documentVersionId===section.documentVersionId)?.mimeType:
+        sources.caseDocuments.find(source=>source.documentVersionId===section.documentVersionId)?.mimeType)??'')))throw new ApiError(422,'INVALID_AI_IMAGE_SOURCE');
     const id=checked(await ctx.service.rpc('create_ai_batch',{p_case_id:ctx.state.id,p_actor:ctx.actor.id,p_request:parsed})) as string;
     return {batch:(await batches(ctx,id))[0],budget:await budget(ctx)};
   }
   if(parts[0]!=='batches' || !uuid.test(parts[1]??'') || parts[2]!=='steps' || !/^[0-5]$/.test(parts[3]??''))throw new ApiError(404,'NOT_FOUND');
   const batchId=parts[1],index=Number(parts[3]);
+  if(method==='POST' && parts.length===7 && parts[4]==='findings' && /^\d{1,2}$/.test(parts[5]??'') && parts[6]==='review') {
+    const parsed=parseAiFindingReview(input);
+    checked(await ctx.service.rpc('review_ai_finding',{p_case_id:ctx.state.id,p_actor:ctx.actor.id,p_batch:batchId,p_step:index,
+      p_finding:Number(parts[5]),p_request:parsed}));
+    const batch=(await batches(ctx,batchId))[0];if(!batch)throw new ApiError(404,'NOT_FOUND');
+    return {step:batch.steps.find(s=>s.index===index)};
+  }
   if(method==='POST' && parts.length===5 && parts[4]==='review') {
     const parsed=parseAiReview(input);
     checked(await ctx.service.rpc('review_ai_step',{p_case_id:ctx.state.id,p_actor:ctx.actor.id,p_batch:batchId,p_step:index,p_request:parsed}));
@@ -125,12 +170,22 @@ export async function handleAi(ctx:AiContext,method:string,parts:string[],input?
   // Completed/failed steps can be read again without re-sending image bytes or invoking the provider.
   if(done)return {step:selected,budget:await budget(ctx)};
   const dataUrl=image?validateAiImage(input.imageDataUrl):undefined;
+  const catalog=await sourceCatalog(ctx);
+  const registry:AiSourceContext[]=sections.map(section=>{
+    const source=section.sourceType==='workspace-standard-terms'
+      ?catalog.standardTerms.find(item=>item.documentVersionId===section.documentVersionId)
+      :catalog.caseDocuments.find(item=>item.documentVersionId===section.documentVersionId);
+    if(!source)throw new ApiError(404,'SOURCE_FILE_REQUIRED');
+    const document=ctx.state.documents.find(item=>item.id===source.documentVersionId);
+    return {sourceType:source.sourceType,documentVersionId:source.documentVersionId,type:source.documentType??'workspace-standard-terms',
+      status:source.status??'finalized',periodStart:source.periodStart??null,periodEnd:source.periodEnd??null,
+      optionId:document?.optionId??null,version:source.version,name:source.name};
+  });
   const inputBytes=new TextEncoder().encode(JSON.stringify({batchId,index,sections,imageDataUrl:dataUrl}));
   const inputSha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',inputBytes)),b=>b.toString(16).padStart(2,'0')).join('');
   const reserved=checked(await ctx.service.rpc('reserve_ai_step',{p_case_id:ctx.state.id,p_actor:ctx.actor.id,p_batch:batchId,p_step:index,p_idempotency_key:input.idempotencyKey.toLowerCase(),p_input_sha256:inputSha256})) as {run:boolean;step:StepRow};
   if(!reserved.run)return {step:step(reserved.step),budget:await budget(ctx)};
   let result:AiStep['result']=null,errorCode:string|null=null;
-  const registry=ctx.state.documents.filter(d=>sections.some(s=>s.documentVersionId===d.id)).map(d=>({documentVersionId:d.id,type:d.type,status:d.status,periodStart:d.periodStart,periodEnd:d.periodEnd,optionId:d.optionId}));
   try{result=await providerResult(sections,batch.purpose,registry,dataUrl);}catch(error){errorCode=error instanceof ApiError && /^AI_[A-Z_]+$/.test(error.code)?error.code:'AI_UNAVAILABLE';}
   const finished=checked(await ctx.service.rpc('finish_ai_step',{p_case_id:ctx.state.id,p_actor:ctx.actor.id,p_batch:batchId,p_step:index,p_attempt:reserved.step.attempt_id,p_result:result,p_error:errorCode})) as StepRow;
   return {step:step(finished),budget:await budget(ctx)};

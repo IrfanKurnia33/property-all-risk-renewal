@@ -285,9 +285,9 @@ export function RenewalWorkspace({store,account}:{store:WorkspaceStore;account?:
   const qsBlockers = [...getQsBlockers(state),...sourceBlockers({type:'prepareQuote'})], proposalBlockers = [...getProposalBlockers(state),...sourceBlockers({type:'publishProposal'})], exportBlockers = [...getExportBlockers(state),...sourceBlockers({type:'issueDfs'})], bindingBlockers = getBindingBlockers(state);
   const stageIndex = STAGES.findIndex(s => s.id === stage), stageInfo = STAGES[stageIndex];
   const sections: RenewalSection[] = stage === 'materials' ? [
+    ...(account?.aiPanel ? [{ id: 'ai', label: 'Tinjauan klausul AI' }] : []),
     { id: 'qs', label: 'Ringkasan QS' }, { id: 'sources', label: 'Sumber dokumen' },
     { id: 'terms', label: 'Terms & premi' },
-    ...(account?.aiPanel ? [{ id: 'ai', label: 'Bantuan AI' }] : []),
     ...(account?.caseAccessPanel ? [{ id: 'access', label: 'Akses kasus' }] : []),
   ] : stage === 'insurer' ? [
     { id: 'panel', label: 'Ringkasan panel' }, { id: 'response', label: 'Catat respons' },

@@ -17,14 +17,15 @@ select
       'public.create_renewal_case(uuid,jsonb,jsonb)','public.set_case_assignments(text,uuid,bigint,uuid,uuid[],jsonb)',
       'public.create_ai_batch(text,uuid,jsonb)','public.ai_workspace_budget(uuid)',
       'public.reserve_ai_step(text,uuid,uuid,integer,uuid,text)','public.refresh_ai_leases(text,uuid)',
-      'public.finish_ai_step(text,uuid,uuid,integer,uuid,jsonb,text)','public.review_ai_step(text,uuid,uuid,integer,jsonb)']) signature) as service_rpcs,
+      'public.finish_ai_step(text,uuid,uuid,integer,uuid,jsonb,text)','public.review_ai_step(text,uuid,uuid,integer,jsonb)',
+      'public.review_ai_finding(text,uuid,uuid,integer,integer,jsonb)']) signature) as service_rpcs,
   (select count(*) from pg_policies where schemaname='storage' and tablename='objects')::int as storage_policies
 `}),signal:AbortSignal.timeout(15000)});
 if(!response.ok)throw new Error('Database verification failed (HTTP '+response.status+').');
 const [checks]=await response.json();
-assert.equal(checks.public_tables,17);assert.equal(checks.rls_tables,17);
+assert.equal(checks.public_tables,21);assert.equal(checks.rls_tables,21);
 assert.equal(checks.anon_commit,false);assert.equal(checks.authenticated_commit,false);assert.equal(checks.service_commit,true);
-assert.equal(checks.service_rpcs.length,10);
+assert.equal(checks.service_rpcs.length,11);
 for(const rpc of checks.service_rpcs){assert.equal(rpc.anon,false,rpc.signature);assert.equal(rpc.authenticated,false,rpc.signature);assert.equal(rpc.service,true,rpc.signature);}
 assert.equal(checks.storage_policies,0,'Review existing Storage policies before claiming isolation.');
 const {data,error}=await admin.storage.getBucket('renewal-documents');

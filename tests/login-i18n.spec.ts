@@ -65,10 +65,9 @@ for (const role of ['broker', 'client'] as const) test(`${role} stays bilingual 
   await expect(page.getByRole('heading', { name: role === 'broker' ? 'Documents and source versions' : 'Current-period data confirmation', exact: true })).toBeVisible();
   if (role === 'broker') {
     await page.getByTestId('section-tab-ai').click();
-    await page.getByText('AI assistance for renewal sources · optional', { exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'AI source assistance', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI-assisted renewal clause review', exact: true })).toBeVisible();
     await language(page, 'id').click();
-    await expect(page.getByRole('heading', { name: 'Bantuan AI untuk sumber', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Tinjauan klausul renewal dengan AI', exact: true })).toBeVisible();
     await language(page, 'en').click();
   }
   await page.locator('[data-testid="account-menu-trigger"]:visible').click();

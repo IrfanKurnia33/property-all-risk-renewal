@@ -51,8 +51,10 @@ try{
   const sourceSegments=await admin.from('source_segments').select('preparation,excerpt').eq('document_version_id',upload.documentId);check(sourceSegments.error);
   equal(sourceSegments.data.length,1);equal(sourceSegments.data[0].preparation,'browser-ai-input');equal(sourceSegments.data[0].excerpt,section.text);
   const signedClient=createClient(url,publicKey,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:'Bearer '+accounts[2].token}}});
-  for(const table of ['ai_batches','ai_steps','ai_step_reviews']){const selected=await signedClient.from(table).select('*');check(selected.error);equal(selected.data,[]);}
+  for(const table of ['ai_batches','ai_steps','ai_step_reviews','ai_finding_reviews']){const selected=await signedClient.from(table).select('*');check(selected.error);equal(selected.data,[]);}
   const forbidden=await client.rpc('reserve_ai_step',{...args(first.batch.id),p_idempotency_key:randomUUID()});equal(forbidden.error?.code,'42501');
+  const forbiddenFindingReview=await client.rpc('review_ai_finding',{...args(first.batch.id),p_finding:0,p_request:{idempotencyKey:randomUUID(),decision:'accepted',note:'Fictional test'}});
+  equal(forbiddenFindingReview.error?.code,'42501');
   const write=await signedClient.from('ai_batches').insert({case_id:caseA});assert.ok(write.error);assertions++;
 
   async function newBatch(){return rpc('create_ai_batch',{p_case_id:caseA,p_actor:accounts[0].id,p_request:request()});}
